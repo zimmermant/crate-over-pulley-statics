@@ -126,7 +126,7 @@ export function createScene(svg, actions) {
     const cm = { x: (PULLEY.x + C.x) / 2, y: (PULLEY.y + C.y) / 2 };
     text(drawRoot, cm.x + 14, cm.y, `T_BC = ${Math.round(s.TBC)} N`,
          { fill: COLORS.t2, weight: 600 });
-    text(drawRoot, PULLEY.x, CRATE.top + CRATE.h / 2 + 5, `${Math.round(s.W)} N`,
+    text(drawRoot, PULLEY.x, CRATE.top + CRATE.h / 2 + 5, `W = ${Math.round(s.W)} N`,
          { anchor: 'middle', weight: 600 });
 
     cHandle.setAttribute('transform', `translate(${C.x} ${C.y})`);
