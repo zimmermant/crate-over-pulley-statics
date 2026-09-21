@@ -4,9 +4,11 @@ import { el, clear, text, COLORS, clientToSvg } from './svg.js';
 export const FBD_VB = { w: 720, h: 620 };
 export const FBD_ORIGIN = { x: 365, y: 368 };
 
-// A FIXED scale, with no clipping machinery. T_BD <= 2W always, so the longest
-// reachable arrow is 2 * WEIGHT_MAX * FBD_SCALE = 240px and always fits. The
-// ball-on-ramp app needed clipping only because its tensions ran to infinity.
+// A FIXED scale, with no clipping machinery. T_BD <= 2W always, but that bound
+// needs beta -> 90 deg, outside [BETA_MIN, BETA_MAX]. The longest reachable
+// arrow, at W = WEIGHT_MAX and beta = BETA_MAX, is about 237.9px and always
+// fits. The ball-on-ramp app needed clipping only because its tensions ran to
+// infinity.
 export const FBD_SCALE = 0.20;
 
 // Unit vector of each force in SVG coordinates (y down).
@@ -76,6 +78,7 @@ export function createFbd(svg, actions) {
       ['bc', COLORS.t2, `T_BC = ${Math.round(s.TBC)} N`],
       ['ab', COLORS.w,  `T_AB = ${Math.round(s.TAB)} N`]
     ];
+    const atLimit = Math.abs(s.W - WEIGHT_MIN) < 1e-9 || Math.abs(s.W - WEIGHT_MAX) < 1e-9;
     for (const [key, color, label] of spec) {
       const t = arrowTip(s, key);
       el('line', {
@@ -91,6 +94,7 @@ export function createFbd(svg, actions) {
       handles[key].setAttribute('aria-valuemin', String(WEIGHT_MIN));
       handles[key].setAttribute('aria-valuemax', String(WEIGHT_MAX));
       handles[key].setAttribute('aria-label', `${label} arrowhead; drag to change the crate weight`);
+      handles[key].classList.toggle('handle--limit', atLimit);
     }
 
     el('circle', { cx: FBD_ORIGIN.x, cy: FBD_ORIGIN.y, r: 6, fill: COLORS.ink }, drawRoot);
@@ -169,7 +173,13 @@ export function createFbd(svg, actions) {
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
     else return;
     e.preventDefault();
-    actions.setWeight(latest.W + delta);
+    // Round the base before stepping, the same contract scene.js's keyboardStep
+    // uses -- otherwise a drag to a fractional W (e.g. 437.62) leaves ArrowUp
+    // stepping off that fraction forever, and aria-valuenow (which rounds)
+    // announces a number the stored state never actually reaches. Shift stays
+    // unrounded, as the scene does, so fine adjustment still works.
+    const base = e.shiftKey ? latest.W : Math.round(latest.W);
+    actions.setWeight(base + delta);
   });
 
   return { render };

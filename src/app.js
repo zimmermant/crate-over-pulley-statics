@@ -38,6 +38,11 @@ function renderAll(s) {
 
 els.wRange.addEventListener('input', e => state.setWeight(Number(e.target.value)));
 els.wNumber.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+// renderAll skips writing wNumber while it has focus, so it can show a value
+// (e.g. a typed 5000, or a fractional W from an FBD drag) that no longer
+// matches the clamped/rounded state. Rewrite it once the box loses focus so
+// it can never keep showing a stale number indefinitely.
+els.wNumber.addEventListener('change', () => { els.wNumber.value = state.getState().W.toFixed(0); });
 
 state.subscribe(renderAll);
 renderAll(state.getState());

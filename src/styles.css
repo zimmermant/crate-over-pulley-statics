@@ -72,6 +72,8 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 .handle:focus-visible circle { stroke: #111827; stroke-width: 2.5; }
 .handle--active circle { filter: brightness(1.2); }
 .handle--active .hit   { fill: rgba(17, 24, 39, 0.06); }
+/* At a clamp limit, render visibly pinned rather than silently refusing to move. */
+.handle--limit circle { stroke-dasharray: 3 2; }
 
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }

@@ -1,6 +1,5 @@
 import { DEG, BETA_MIN, BETA_MAX } from './physics.js';
 import { el, clear, text, COLORS, clientToSvg } from './svg.js';
-// clientToSvg is unused until Task 5 wires the drag; leave the import in place.
 
 // --- geometry -------------------------------------------------------------
 // Every constant below was fixed by the sweep in test/scene.test.js, which
@@ -142,10 +141,29 @@ export function createScene(svg, actions) {
     cHandle.setAttribute('aria-valuemin', String(BETA_MIN));
     cHandle.setAttribute('aria-valuemax', String(BETA_MAX));
     cHandle.setAttribute('aria-label', 'Ground anchor position');
+    const atLimit = Math.abs(s.beta - BETA_MIN) < 1e-9 || Math.abs(s.beta - BETA_MAX) < 1e-9;
+    cHandle.classList.toggle('handle--limit', atLimit);
+  }
+
+  // Same shape as fbd.js's setActive: this panel has one handle instead of
+  // fbd's three, so it takes a boolean rather than a key to match against.
+  function setActive(on) {
+    cHandle.classList.toggle('handle--active', on);
   }
 
   let dragging = false;
   let dragPointerId = null;
+
+  svg.addEventListener('pointerover', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g && !dragging) setActive(true);
+  });
+  svg.addEventListener('pointerout', () => { if (!dragging) setActive(false); });
+  handleRoot.addEventListener('focusin', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g) setActive(true);
+  });
+  handleRoot.addEventListener('focusout', () => { if (!dragging) setActive(false); });
 
   svg.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;                 // right/middle click must not drag
@@ -162,6 +180,7 @@ export function createScene(svg, actions) {
     dragging = true;
     dragPointerId = e.pointerId;
     g.focus();
+    setActive(true);
     e.preventDefault();
   });
 
@@ -176,6 +195,9 @@ export function createScene(svg, actions) {
     if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
     dragging = false;
     dragPointerId = null;
+    const focused = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('[data-scene]') : null;
+    setActive(!!focused);
   }
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);

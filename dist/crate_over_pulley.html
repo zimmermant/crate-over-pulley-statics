@@ -79,6 +79,8 @@ h1 { font-size: 20px; margin: 0 0 4px; }
 .handle:focus-visible circle { stroke: #111827; stroke-width: 2.5; }
 .handle--active circle { filter: brightness(1.2); }
 .handle--active .hit   { fill: rgba(17, 24, 39, 0.06); }
+/* At a clamp limit, render visibly pinned rather than silently refusing to move. */
+.handle--limit circle { stroke-dasharray: 3 2; }
 
 @media (max-width: 900px) {
   .grid { grid-template-columns: 1fr; }
@@ -291,7 +293,6 @@ function createState() {
 // ===== scene.js =====
 
 
-// clientToSvg is unused until Task 5 wires the drag; leave the import in place.
 
 // --- geometry -------------------------------------------------------------
 // Every constant below was fixed by the sweep in test/scene.test.js, which
@@ -433,10 +434,29 @@ function createScene(svg, actions) {
     cHandle.setAttribute('aria-valuemin', String(BETA_MIN));
     cHandle.setAttribute('aria-valuemax', String(BETA_MAX));
     cHandle.setAttribute('aria-label', 'Ground anchor position');
+    const atLimit = Math.abs(s.beta - BETA_MIN) < 1e-9 || Math.abs(s.beta - BETA_MAX) < 1e-9;
+    cHandle.classList.toggle('handle--limit', atLimit);
+  }
+
+  // Same shape as fbd.js's setActive: this panel has one handle instead of
+  // fbd's three, so it takes a boolean rather than a key to match against.
+  function setActive(on) {
+    cHandle.classList.toggle('handle--active', on);
   }
 
   let dragging = false;
   let dragPointerId = null;
+
+  svg.addEventListener('pointerover', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g && !dragging) setActive(true);
+  });
+  svg.addEventListener('pointerout', () => { if (!dragging) setActive(false); });
+  handleRoot.addEventListener('focusin', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g) setActive(true);
+  });
+  handleRoot.addEventListener('focusout', () => { if (!dragging) setActive(false); });
 
   svg.addEventListener('pointerdown', e => {
     if (e.button !== 0) return;                 // right/middle click must not drag
@@ -453,6 +473,7 @@ function createScene(svg, actions) {
     dragging = true;
     dragPointerId = e.pointerId;
     g.focus();
+    setActive(true);
     e.preventDefault();
   });
 
@@ -467,6 +488,9 @@ function createScene(svg, actions) {
     if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
     dragging = false;
     dragPointerId = null;
+    const focused = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('[data-scene]') : null;
+    setActive(!!focused);
   }
   svg.addEventListener('pointerup', endDrag);
   svg.addEventListener('pointercancel', endDrag);
@@ -494,9 +518,11 @@ function createScene(svg, actions) {
 const FBD_VB = { w: 720, h: 620 };
 const FBD_ORIGIN = { x: 365, y: 368 };
 
-// A FIXED scale, with no clipping machinery. T_BD <= 2W always, so the longest
-// reachable arrow is 2 * WEIGHT_MAX * FBD_SCALE = 240px and always fits. The
-// ball-on-ramp app needed clipping only because its tensions ran to infinity.
+// A FIXED scale, with no clipping machinery. T_BD <= 2W always, but that bound
+// needs beta -> 90 deg, outside [BETA_MIN, BETA_MAX]. The longest reachable
+// arrow, at W = WEIGHT_MAX and beta = BETA_MAX, is about 237.9px and always
+// fits. The ball-on-ramp app needed clipping only because its tensions ran to
+// infinity.
 const FBD_SCALE = 0.20;
 
 // Unit vector of each force in SVG coordinates (y down).
@@ -566,6 +592,7 @@ function createFbd(svg, actions) {
       ['bc', COLORS.t2, `T_BC = ${Math.round(s.TBC)} N`],
       ['ab', COLORS.w,  `T_AB = ${Math.round(s.TAB)} N`]
     ];
+    const atLimit = Math.abs(s.W - WEIGHT_MIN) < 1e-9 || Math.abs(s.W - WEIGHT_MAX) < 1e-9;
     for (const [key, color, label] of spec) {
       const t = arrowTip(s, key);
       el('line', {
@@ -581,6 +608,7 @@ function createFbd(svg, actions) {
       handles[key].setAttribute('aria-valuemin', String(WEIGHT_MIN));
       handles[key].setAttribute('aria-valuemax', String(WEIGHT_MAX));
       handles[key].setAttribute('aria-label', `${label} arrowhead; drag to change the crate weight`);
+      handles[key].classList.toggle('handle--limit', atLimit);
     }
 
     el('circle', { cx: FBD_ORIGIN.x, cy: FBD_ORIGIN.y, r: 6, fill: COLORS.ink }, drawRoot);
@@ -659,7 +687,13 @@ function createFbd(svg, actions) {
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
     else return;
     e.preventDefault();
-    actions.setWeight(latest.W + delta);
+    // Round the base before stepping, the same contract scene.js's keyboardStep
+    // uses -- otherwise a drag to a fractional W (e.g. 437.62) leaves ArrowUp
+    // stepping off that fraction forever, and aria-valuenow (which rounds)
+    // announces a number the stored state never actually reaches. Shift stays
+    // unrounded, as the scene does, so fine adjustment still works.
+    const base = e.shiftKey ? latest.W : Math.round(latest.W);
+    actions.setWeight(base + delta);
   });
 
   return { render };
@@ -752,9 +786,19 @@ function terms(s) {
     tbd: s.TBD.toFixed(1),
     beta: s.beta.toFixed(1),
     theta: s.theta.toFixed(1),
+    // The two equation lines print these -- at 1 dp, cos/sin of the rounded
+    // angle disagrees with the prose's unrounded-then-rounded fxLeft/fxRight
+    // by up to ~1 N. 2 dp keeps the printed arithmetic close enough (worst
+    // case ~0.02 N) that multiplying the numbers on screen actually closes.
+    beta2: s.beta.toFixed(2),
+    theta2: s.theta.toFixed(2),
     fxLeft:  (s.TBC * Math.cos(s.beta * DEG)).toFixed(1),
     fxRight: (s.TBD * Math.cos(s.theta * DEG)).toFixed(1),
     fyUp:    (s.TBD * Math.sin(s.theta * DEG)).toFixed(1),
+    // The far segment's vertical pull, computed from the unrounded state --
+    // NOT derived by subtracting two already-rounded display strings, which
+    // is arithmetic on rounded values and can be off by up to 0.1 N.
+    fyFar:   (s.TBC * Math.sin(s.beta * DEG)).toFixed(1),
     fyDown:  (s.TAB + s.TBC * Math.sin(s.beta * DEG)).toFixed(1)
   };
 }
@@ -765,15 +809,17 @@ function createEquations(node) {
     const o = COLORS.t1, b = COLORS.t2, g = COLORS.w;
     // Every value is a number formatted by toFixed, so there is nothing to escape.
     node.innerHTML =
-      `<div>&Sigma;F<sub>x</sub>: <span style="color:${b}">${t.tbc}&middot;cos&nbsp;${t.beta}&deg;</span>` +
-      ` &minus; <span style="color:${o}">${t.tbd}&middot;cos&nbsp;${t.theta}&deg;</span> = 0</div>` +
-      `<div>&Sigma;F<sub>y</sub>: <span style="color:${o}">${t.tbd}&middot;sin&nbsp;${t.theta}&deg;</span>` +
+      `<div>&Sigma;F<sub>x</sub>: <span style="color:${b}">${t.tbc}&middot;cos&nbsp;${t.beta2}&deg;</span>` +
+      ` &minus; <span style="color:${o}">${t.tbd}&middot;cos&nbsp;${t.theta2}&deg;</span> = 0</div>` +
+      `<div>&Sigma;F<sub>y</sub>: <span style="color:${o}">${t.tbd}&middot;sin&nbsp;${t.theta2}&deg;</span>` +
       ` &minus; <span style="color:${g}">${t.tab}</span>` +
-      ` &minus; <span style="color:${b}">${t.tbc}&middot;sin&nbsp;${t.beta}&deg;</span> = 0</div>` +
+      ` &minus; <span style="color:${b}">${t.tbc}&middot;sin&nbsp;${t.beta2}&deg;</span> = 0</div>` +
       `<div style="font-size:12px;color:#9aa1ab;font-family:system-ui;line-height:1.5;margin-top:6px">` +
       `Both horizontal terms equal ${t.fxLeft} N. The upward pull of ${t.fyUp} N carries the ` +
-      `crate&rsquo;s ${t.tab} N plus the ${(Number(t.fyDown) - Number(t.tab)).toFixed(1)} N the far ` +
-      `segment adds. The sums are exactly zero &mdash; that is what fixes T_BD and &theta;.</div>`;
+      `crate&rsquo;s ${t.tab} N plus the ${t.fyFar} N the far ` +
+      `segment adds. Both sums are exactly zero for the underlying numbers &mdash; that is what fixes ` +
+      `T_BD and &theta;. The angles above are rounded for display, so multiplying the printed ` +
+      `numbers only closes to within about a tenth of a newton.</div>`;
   }
   return { render };
 }
@@ -898,6 +944,11 @@ function renderAll(s) {
 
 els.wRange.addEventListener('input', e => state.setWeight(Number(e.target.value)));
 els.wNumber.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+// renderAll skips writing wNumber while it has focus, so it can show a value
+// (e.g. a typed 5000, or a fractional W from an FBD drag) that no longer
+// matches the clamped/rounded state. Rewrite it once the box loses focus so
+// it can never keep showing a stale number indefinitely.
+els.wNumber.addEventListener('change', () => { els.wNumber.value = state.getState().W.toFixed(0); });
 
 state.subscribe(renderAll);
 renderAll(state.getState());
