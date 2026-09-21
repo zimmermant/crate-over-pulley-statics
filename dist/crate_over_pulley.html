@@ -991,6 +991,18 @@ function createEquations(node) {
 
 // Pure, so it can be tested without a DOM. Every number is rounded here, at the
 // moment of display, from the live unrounded state -- never hard-coded.
+
+function detentMessage(s, triple) {
+  const tbd = Math.round(s.TBD);
+  const textbookNote = triple.across === 5 && triple.down === 12 ?
+    ` This is the classic textbook case.` : '';
+  const ratio = (s.TBD / s.W).toFixed(2);
+  return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
+         `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
+         `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
+         `T_BD = ${ratio} W = ${tbd} N.`;
+}
+
 function pickMessage(s, prev) {
   const w = Math.round(s.W);
   const tbd = Math.round(s.TBD);
@@ -1010,12 +1022,7 @@ function pickMessage(s, prev) {
 
   if (changedB) {
     if (triple) {
-      const textbookNote = triple.across === 5 && triple.down === 12 ?
-        ` This is the classic textbook case.` : '';
-      return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
-             `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
-             `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
-             `T_BD = 1.96 W = ${tbd} N.`;
+      return detentMessage(s, triple);
     }
     const db = Math.abs(s.beta - prev.beta);
     const half = `β moved ${db.toFixed(1)}°, θ moved ${(db / 2).toFixed(1)}°. ` +
@@ -1039,12 +1046,7 @@ function pickMessage(s, prev) {
   // this branch is the only one of this function's "first render" branches that is
   // ever actually reached.
   if (triple) {
-    const textbookNote = triple.across === 5 && triple.down === 12 ?
-      ` This is the classic textbook case.` : '';
-    return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
-           `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
-           `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
-           `T_BD = 1.96 W = ${tbd} N.`;
+    return detentMessage(s, triple);
   }
 
   // Unreachable in the running app: prev === null only happens on the startup

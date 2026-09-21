@@ -92,6 +92,18 @@ test('each detent announces the correct triple integers', () => {
   }
 });
 
+test('each detent announces the correct T_BD/W ratio from live state', () => {
+  for (const t of TRIPLES) {
+    const W = 500;
+    const beta = tripleBeta(t);
+    const state = snap(W, beta);
+    const expectedRatio = (state.TBD / W).toFixed(2);
+    const m = pickMessage(state, null);
+    assert.match(m, new RegExp(`T_BD = ${expectedRatio} W`),
+      `triple ${t.across}-${t.down}-${t.hyp}: T_BD should be ${expectedRatio} W`);
+  }
+});
+
 test('a beta a tenth of a degree away from each triple does NOT claim the ratio', () => {
   for (const t of TRIPLES) {
     const beta = tripleBeta(t) + 0.1;
