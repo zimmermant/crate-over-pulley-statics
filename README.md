@@ -32,7 +32,11 @@ and T_BD = 1.9612 W. Dragging the anchor near that point snaps onto it exactly.
 
 ## Development
 
-    export NODE=/opt/homebrew/Cellar/node@22/22.23.2_1/bin/node
+This project needs Node 22 or later. If plain `node` on your machine resolves
+to something older (or to nothing), point `NODE` at your own Node 22+ binary
+first:
+
+    export NODE=node                # or the full path to your Node 22+ binary
     $NODE --test test/*.test.js     # run the tests
     $NODE build.js                  # rebuild dist/
 

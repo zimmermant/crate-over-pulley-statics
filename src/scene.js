@@ -1,4 +1,4 @@
-import { DEG, BETA_MIN, BETA_MAX } from './physics.js';
+import { DEG, BETA_MIN, BETA_MAX, BETA_SPECIAL } from './physics.js';
 import { el, clear, text, COLORS, clientToSvg } from './svg.js';
 
 // --- geometry -------------------------------------------------------------
@@ -133,7 +133,10 @@ export function createScene(svg, actions) {
 
     text(drawRoot, PULLEY.x - 78, PULLEY.y - 46, `θ = ${s.theta.toFixed(1)}°`,
          { fill: COLORS.t1, weight: 600, anchor: 'end' });
-    text(drawRoot, PULLEY.x + 92, PULLEY.y + 58, `β = ${s.beta.toFixed(1)}°`,
+    // The detent marker Todd chose: naming the textbook slope when you're on it.
+    const atDetent = Math.abs(s.beta - BETA_SPECIAL) < 1e-9;
+    const betaText = atDetent ? `β = ${s.beta.toFixed(1)}° (12-13-5)` : `β = ${s.beta.toFixed(1)}°`;
+    text(drawRoot, PULLEY.x + 92, PULLEY.y + 58, betaText,
          { fill: COLORS.t2, weight: 600 });
 
     const labels = sceneLabels(s);

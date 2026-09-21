@@ -74,8 +74,12 @@ export function createTriangle(svg) {
            { fill: color, weight: 600, anchor: nx < 0 ? 'end' : 'start' });
     }
 
+    // "N per viewBox unit", not "N per pixel": the SVG is always CSS-scaled to
+    // fit its panel, so a student measuring with a ruler on screen would get a
+    // different number from either unit -- viewBox units are what this scale
+    // actually relates the drawing to.
     text(root, 12, TRI_VB.h - 12,
-         `scale: ${(1 / scale).toFixed(1)} N per pixel — shape only, the size is fitted`,
+         `scale: ${(1 / scale).toFixed(1)} N per viewBox unit — shape only, the size is fitted`,
          { size: 11, fill: '#9aa1ab' });
   }
 

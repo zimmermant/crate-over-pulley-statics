@@ -105,7 +105,11 @@ export function scanForDuplicates(code, moduleName, seen) {
   return seen;
 }
 
-export function main() {
+// outDir lets a test point the build at a scratch directory outside the repo
+// (see test/build.test.js) instead of always writing into the committed
+// dist/. The real CLI invocation at the bottom of this file calls main() with
+// no argument, which keeps writing to dist/ exactly as before.
+export function main(outDir) {
   const seen = new Map();
   const parts = [];
   for (const m of MODULES) {
@@ -156,9 +160,11 @@ export function main() {
   if (html.length > 250_000) problems.push(`output is ${html.length} bytes, over the 250 KB budget`);
   if (problems.length) throw new Error('Build failed:\n  - ' + problems.join('\n  - '));
 
-  mkdirSync(join(root, 'dist'), { recursive: true });
-  writeFileSync(join(root, 'dist', 'crate_over_pulley.html'), html);
-  console.log(`built dist/crate_over_pulley.html  (${html.length} bytes, ${MODULES.length} modules)`);
+  const dir = outDir || join(root, 'dist');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'crate_over_pulley.html'), html);
+  const label = outDir ? join(outDir, 'crate_over_pulley.html') : 'dist/crate_over_pulley.html';
+  console.log(`built ${label}  (${html.length} bytes, ${MODULES.length} modules)`);
 }
 
 // E4: run only when this file is the program node was invoked on, so importing

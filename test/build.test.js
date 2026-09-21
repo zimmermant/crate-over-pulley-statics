@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { strip, scanForDuplicates } from '../build.js';
+import { readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { strip, scanForDuplicates, main } from '../build.js';
 
 // build.js only calls main() when it is the program node was invoked on (see
 // its guard at the bottom), so importing it here to reach `strip` does not
@@ -133,4 +136,24 @@ test('a top-level px in one module and a function-local px in another do not col
   ].join('\n');
   assert.doesNotThrow(() =>
     scanForDuplicates(triangleSrc, 'triangle.js', seen));
+});
+
+// No committed test ever ran main() itself -- everything above exercises its
+// helper functions. Build twice into scratch directories OUTSIDE the repo (main()
+// takes an optional outDir for exactly this) and compare the bytes, so the
+// commited dist/crate_over_pulley.html is never touched by the test suite.
+test('main() builds a byte-reproducible bundle, without touching the committed dist/', () => {
+  const dirA = mkdtempSync(join(tmpdir(), 'crate-over-pulley-build-a-'));
+  const dirB = mkdtempSync(join(tmpdir(), 'crate-over-pulley-build-b-'));
+  try {
+    main(dirA);
+    main(dirB);
+    const a = readFileSync(join(dirA, 'crate_over_pulley.html'));
+    const b = readFileSync(join(dirB, 'crate_over_pulley.html'));
+    assert.ok(a.length > 1000, `built file looks too small: ${a.length} bytes`);
+    assert.deepStrictEqual(a, b, 'two builds of the same source must be byte-identical');
+  } finally {
+    rmSync(dirA, { recursive: true, force: true });
+    rmSync(dirB, { recursive: true, force: true });
+  }
 });
