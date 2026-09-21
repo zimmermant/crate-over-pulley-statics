@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  DEG, BETA_MIN, BETA_MAX, WEIGHT_MIN, WEIGHT_MAX, BETA_SPECIAL,
+  DEG, BETA_MIN, BETA_MAX, WEIGHT_MIN, WEIGHT_MAX, BETA_SPECIAL, SNAP_TOL,
   clampBeta, clampWeight, snapBeta, solve, weightFromMagnitude
 } from '../src/physics.js';
 
@@ -44,6 +44,12 @@ test('both rope segments carry exactly the crate weight', () => {
 });
 
 test('theta ignores the weight while T_BD scales with it', () => {
+  // Verify absolute values at a test point to pin the formula
+  const s60 = solve({ W: 500, beta: 60 });
+  assert.strictEqual(s60.theta, 75);
+  assert.ok(Math.abs(s60.TBD - 500 * 2 * Math.cos(Math.PI / 4 - 30 * DEG)) < 1e-9,
+            'TBD formula at beta=60, W=500');
+
   for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 1) {
     assert.strictEqual(solve({ W: WEIGHT_MIN, beta }).theta,
                        solve({ W: WEIGHT_MAX, beta }).theta);
@@ -71,15 +77,19 @@ test('clamps coerce non-numeric input instead of passing it through', () => {
 });
 
 test('the detent snaps nearby values and leaves distant ones alone', () => {
+  assert.strictEqual(SNAP_TOL, 1.5);
   assert.strictEqual(snapBeta(BETA_SPECIAL + 1.0), BETA_SPECIAL);
   assert.strictEqual(snapBeta(BETA_SPECIAL - 1.0), BETA_SPECIAL);
   assert.strictEqual(snapBeta(BETA_SPECIAL + 2.0), BETA_SPECIAL + 2.0);
   assert.strictEqual(snapBeta(BETA_SPECIAL - 2.0), BETA_SPECIAL - 2.0);
+  // Boundary tests: exactly at tolerance and just beyond
+  assert.strictEqual(snapBeta(BETA_SPECIAL + SNAP_TOL), BETA_SPECIAL);
+  assert.notStrictEqual(snapBeta(BETA_SPECIAL + SNAP_TOL + 1e-9), BETA_SPECIAL);
   assert.strictEqual(snapBeta(1000), BETA_MAX);          // clamping still applies
 });
 
 test('every arrowhead length inverts back to the weight that drew it', () => {
-  for (const W of [100, 275, 600]) {
+  for (const W of [100, 275, 400, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 5) {
       const s = solve({ W, beta });
       assert.ok(Math.abs(weightFromMagnitude(s.TAB, 'ab', beta) - W) < 1e-9);
