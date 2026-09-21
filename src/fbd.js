@@ -82,9 +82,9 @@ export function createFbd(svg, actions) {
         x1: FBD_ORIGIN.x, y1: FBD_ORIGIN.y, x2: t.x, y2: t.y,
         stroke: color, 'stroke-width': 4, 'marker-end': `url(#head-${key})`
       }, drawRoot);
-      const off = key === 'ab' ? { x: 14, y: 0 } : key === 'bc' ? { x: 16, y: 6 } : { x: -16, y: -4 };
+      const off = key === 'ab' ? { x: -14, y: 0 } : key === 'bc' ? { x: 16, y: 6 } : { x: -16, y: -4 };
       text(drawRoot, t.x + off.x, t.y + off.y, label,
-           { fill: color, weight: 600, anchor: key === 'bd' ? 'end' : 'start' });
+           { fill: color, weight: 600, anchor: key === 'bc' ? 'start' : 'end' });
 
       handles[key].setAttribute('transform', `translate(${t.x} ${t.y})`);
       handles[key].setAttribute('aria-valuenow', Math.round(s.W));
