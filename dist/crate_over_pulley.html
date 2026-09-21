@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A crate over a pulley</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: #f7f7f8;
+  color: #111827;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+.lede { margin: 0 0 16px; color: #555b66; font-size: 14px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-width: 1400px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e3e5e9;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.panel > h2 {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  background: #fafafb;
+  border-bottom: 1px solid #eceef1;
+}
+
+.panel svg { display: block; width: 100%; height: auto; }
+
+.panel--short svg { max-height: 300px; }
+
+#equations {
+  padding: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 2;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  flex-wrap: wrap;
+}
+.controls label { font-size: 14px; font-weight: 600; }
+.controls input[type=range] { width: 260px; }
+.controls input[type=number] { width: 90px; padding: 4px 6px; font-size: 14px; }
+
+#messages { margin: 14px 0 0; min-height: 22px; font-size: 14px; color: #8a5a20; }
+#messages:empty { display: none; }
+
+.note { margin-top: 14px; font-size: 12px; color: #6b7280; max-width: 1400px; }
+
+/* Drag affordances: every handle must visibly respond. */
+.handle { cursor: grab; }
+.handle:hover  circle, .handle:hover  .hit { filter: brightness(1.15); }
+.handle:active { cursor: grabbing; }
+.handle:focus  { outline: none; }
+.handle:focus-visible circle { stroke: #111827; stroke-width: 2.5; }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+</style>
+</head>
+<body>
+<h1>A crate over a pulley</h1>
+<p class="lede">Set the crate&rsquo;s weight, or slide the anchor on the ground to change where the rope runs. The pulley cannot change the rope&rsquo;s tension &mdash; only its direction.</p>
+
+<div class="controls">
+  <label for="w-range">Crate weight</label>
+  <input type="range" id="w-range" min="100" max="600" step="1" value="500">
+  <input type="number" id="w-number" min="100" max="600" step="1" value="500">
+  <span>N</span>
+</div>
+
+<div class="grid">
+  <section class="panel"><h2>The situation</h2><svg id="scene-svg" viewBox="0 0 720 620"></svg></section>
+  <section class="panel"><h2>Free-body diagram of the pulley</h2><svg id="fbd-svg" viewBox="0 0 720 620"></svg></section>
+  <section class="panel panel--short"><h2>Force triangle</h2><svg id="triangle-svg" viewBox="0 0 480 380"></svg></section>
+  <section class="panel panel--short"><h2>Equilibrium</h2><div id="equations"></div></section>
+</div>
+
+<p id="messages"></p>
+
+<p class="note">A frictionless pulley redirects a rope without changing its tension, so both segments of the cable carry the crate&rsquo;s weight. Two equal pulls add to a resultant along the bisector of the angle between them &mdash; which is why the support rope always sits at &theta; = 45&deg; + &beta;/2, and why loading the crate more heavily never moves it.</p>
+
+<script>
+(function () {
+"use strict";
+// ===== physics.js =====
+// Statics of a crate hung over a pulley, with the pulley held by a support rope.
+//
+// The rope runs from the crate at A, up over the pulley at B, and down to a
+// ground anchor at C. A frictionless pulley redirects a rope without changing
+// its tension, so BOTH segments carry the crate's weight W. That one constraint
+// is what makes the problem determinate: it supplies a fourth equation, and the
+// support rope's angle theta stops being an input and becomes an answer.
+//
+// No DOM. Degrees in, degrees out; radians live only inside this file.
+
+const DEG = Math.PI / 180;
+
+const BETA_MIN = 40;
+const BETA_MAX = 75;
+const WEIGHT_MIN = 100;
+const WEIGHT_MAX = 600;
+
+// The figure's 5-12-13 slope: 5 across for every 12 down.
+const BETA_SPECIAL = Math.atan2(12, 5) / DEG;
+const SNAP_TOL = 1.5;
+
+// Coerces its own parameter because it does arithmetic -- a non-numeric or
+// non-finite input would silently produce NaN, and a comparison against NaN is
+// always false, so an unguarded clamp would return the bad value untouched.
+function clampTo(v, lo, hi) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return lo;
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
+function clampBeta(deg) { return clampTo(deg, BETA_MIN, BETA_MAX); }
+function clampWeight(n) { return clampTo(n, WEIGHT_MIN, WEIGHT_MAX); }
+
+// Pointer drags land exactly on the textbook geometry when they come close.
+// Keyboard stepping must NOT route through here: an arrow key that re-snapped
+// would fall back into the well on every press and never climb out.
+function snapBeta(deg) {
+  const v = clampBeta(deg);
+  return Math.abs(v - BETA_SPECIAL) <= SNAP_TOL ? BETA_SPECIAL : v;
+}
+
+// Both rope segments carry W, and the resultant of two equal pulls lies along
+// the bisector of the angle between them. The segments pull along -90 degrees
+// (down to the crate) and -beta (down to the anchor), so their resultant lies
+// at -(90 + beta)/2, and the support rope -- which cancels it -- lies opposite:
+//     theta = 45 + beta/2          measured from the NEGATIVE x-axis
+//     T_BD  = 2 W cos(45 - beta/2)
+function solve({ W, beta }) {
+  const b = beta * DEG;
+  return {
+    TAB: W,
+    TBC: W,
+    TBD: 2 * W * Math.cos(Math.PI / 4 - b / 2),
+    theta: 45 + beta / 2
+  };
+}
+
+// Inverse of the arrow lengths, for dragging an FBD arrowhead. Every arrow is a
+// fixed multiple of W at a given beta, so any one of them determines W.
+function weightFromMagnitude(mag, which, beta) {
+  const m = Number(mag);
+  if (!Number.isFinite(m)) return WEIGHT_MIN;
+  if (which === 'bd') {
+    const k = 2 * Math.cos(Math.PI / 4 - clampBeta(beta) * DEG / 2);
+    return clampWeight(m / k);
+  }
+  return clampWeight(m);        // the 'ab' and 'bc' arrows are both W long
+}
+
+// ===== svg.js =====
+const NS = 'http://www.w3.org/2000/svg';
+
+// One palette for the whole app. It lives here rather than in each renderer
+// because build.js concatenates every module into a single scope, so a
+// top-level `const C1` in three files would collide and fail the build.
+const COLORS = {
+  t1: '#e06c3a',   // support rope tension T_BD
+  t2: '#3a86c8',   // rope to the ground anchor, T_BC
+  w:  '#6b7280',   // the crate's weight W
+  ink: '#111827'   // pulley, ropes and structure
+};
+
+function el(name, attrs = {}, parent = null) {
+  const node = document.createElementNS(NS, name);
+  for (const k in attrs) {
+    const v = attrs[k];
+    if (v !== null && v !== undefined) node.setAttribute(k, String(v));
+  }
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+// Text with a background-coloured halo so labels stay readable where they cross lines.
+function text(parent, x, y, str, opts = {}) {
+  const node = el('text', {
+    x, y,
+    'font-size': opts.size || 13,
+    'font-family': 'system-ui, -apple-system, sans-serif',
+    fill: opts.fill || COLORS.ink,
+    'text-anchor': opts.anchor || 'start',
+    'font-weight': opts.weight || 400,
+    'paint-order': 'stroke',
+    stroke: '#ffffff',
+    'stroke-width': opts.halo === false ? 0 : 3.5,
+    'stroke-linejoin': 'round'
+  }, parent);
+  node.textContent = str;
+  return node;
+}
+
+// Pointer position in viewBox units. Handles CSS scaling and page scroll correctly,
+// which naive clientX - rect.left arithmetic does not.
+function clientToSvg(svg, clientX, clientY) {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+// ===== state.js =====
+
+
+// The ONLY stored state is these two numbers. Every tension and theta is derived
+// on read, which is what makes it structurally impossible for two panels to
+// disagree -- there is one copy of the truth.
+function createState() {
+  let W = 500;
+  let beta = BETA_SPECIAL;
+  let subscribers = [];
+
+  function getState() {
+    const { TAB, TBC, TBD, theta } = solve({ W, beta });
+    return { W, beta, TAB, TBC, TBD, theta };
+  }
+
+  function notify() {
+    const snapshot = getState();
+    for (const fn of subscribers.slice()) fn(snapshot);
+  }
+
+  // Pointer path: lands exactly on the textbook geometry when it comes close.
+  function setBeta(deg) {
+    const v = snapBeta(deg);
+    if (v === beta) return;
+    beta = v;
+    notify();
+  }
+
+  // Keyboard path: clamps but never snaps, so repeated arrow presses move on a
+  // uniform grid and can never be trapped in the detent's well.
+  function setBetaExact(deg) {
+    const v = clampBeta(deg);
+    if (v === beta) return;
+    beta = v;
+    notify();
+  }
+
+  function setWeight(n) {
+    const v = clampWeight(n);
+    if (v === W) return;
+    W = v;
+    notify();
+  }
+
+  function subscribe(fn) {
+    subscribers.push(fn);
+    return () => { subscribers = subscribers.filter(f => f !== fn); };
+  }
+
+  return { getState, setBeta, setBetaExact, setWeight, subscribe };
+}
+
+// ===== scene.js =====
+function createScene(svg, actions) {
+  function render(s) { void svg; void actions; void s; }
+  return { render };
+}
+
+// ===== fbd.js =====
+function createFbd(svg, actions) {
+  function render(s) { void svg; void actions; void s; }
+  return { render };
+}
+
+// ===== triangle.js =====
+function createTriangle(svg) {
+  function render(s) { void svg; void s; }
+  return { render };
+}
+
+// ===== equations.js =====
+function createEquations(node) {
+  function render(s) { void node; void s; }
+  return { render };
+}
+
+// ===== messages.js =====
+function createMessages(node) {
+  function render(s) { void node; void s; }
+  return { render };
+}
+
+// ===== app.js =====
+
+
+
+
+
+
+
+const state = createState();
+
+const els = {
+  scene: document.getElementById('scene-svg'),
+  fbd: document.getElementById('fbd-svg'),
+  triangle: document.getElementById('triangle-svg'),
+  equations: document.getElementById('equations'),
+  messages: document.getElementById('messages'),
+  wRange: document.getElementById('w-range'),
+  wNumber: document.getElementById('w-number')
+};
+
+const panels = [];
+panels.push(createScene(els.scene, {
+  setBeta: deg => state.setBeta(deg),
+  setBetaExact: deg => state.setBetaExact(deg)
+}));
+panels.push(createFbd(els.fbd, {
+  setWeight: n => state.setWeight(n)
+}));
+panels.push(createTriangle(els.triangle));
+panels.push(createEquations(els.equations));
+panels.push(createMessages(els.messages));
+
+function renderAll(s) {
+  for (const p of panels) p.render(s);
+  els.wRange.value = s.W.toFixed(0);
+  // Do not fight the user while they are typing an exact weight into the box.
+  if (document.activeElement !== els.wNumber) els.wNumber.value = s.W.toFixed(0);
+}
+
+els.wRange.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+els.wNumber.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+
+state.subscribe(renderAll);
+renderAll(state.getState());
+
+
+})();
+</script>
+</body>
+</html>

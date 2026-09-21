@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A crate over a pulley</title>
+<!--INLINE_CSS-->
+</head>
+<body>
+<h1>A crate over a pulley</h1>
+<p class="lede">Set the crate&rsquo;s weight, or slide the anchor on the ground to change where the rope runs. The pulley cannot change the rope&rsquo;s tension &mdash; only its direction.</p>
+
+<div class="controls">
+  <label for="w-range">Crate weight</label>
+  <input type="range" id="w-range" min="100" max="600" step="1" value="500">
+  <input type="number" id="w-number" min="100" max="600" step="1" value="500">
+  <span>N</span>
+</div>
+
+<div class="grid">
+  <section class="panel"><h2>The situation</h2><svg id="scene-svg" viewBox="0 0 720 620"></svg></section>
+  <section class="panel"><h2>Free-body diagram of the pulley</h2><svg id="fbd-svg" viewBox="0 0 720 620"></svg></section>
+  <section class="panel panel--short"><h2>Force triangle</h2><svg id="triangle-svg" viewBox="0 0 480 380"></svg></section>
+  <section class="panel panel--short"><h2>Equilibrium</h2><div id="equations"></div></section>
+</div>
+
+<p id="messages"></p>
+
+<p class="note">A frictionless pulley redirects a rope without changing its tension, so both segments of the cable carry the crate&rsquo;s weight. Two equal pulls add to a resultant along the bisector of the angle between them &mdash; which is why the support rope always sits at &theta; = 45&deg; + &beta;/2, and why loading the crate more heavily never moves it.</p>
+
+<!--INLINE_JS-->
+</body>
+</html>
