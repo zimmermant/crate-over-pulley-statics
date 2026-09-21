@@ -5,6 +5,11 @@ import { pickMessage } from '../src/messages.js';
 
 function snap(W, beta) { return { W, beta, ...solve({ W, beta }) }; }
 
+// prev = null only happens on the app's startup render, and startup is always
+// (W=500, beta=BETA_SPECIAL) -- see state.js. Most of the (W, beta) pairs this
+// sweeps are therefore states the running app can never actually pass to
+// pickMessage with prev = null; this exercises pickMessage as a pure function
+// over its whole input space, not as a claim that the app can reach them.
 test('always returns a non-empty string', () => {
   for (const W of [100, 350, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 0.5) {
@@ -15,7 +20,10 @@ test('always returns a non-empty string', () => {
 });
 
 test('names the textbook case at the detent and not away from it', () => {
+  // (500, BETA_SPECIAL, prev=null) is the app's actual startup state.
   assert.match(pickMessage(snap(500, BETA_SPECIAL), null), /5 across/);
+  // (500, 50, prev=null) is not reachable in the running app -- startup is
+  // always at the detent -- so this exercises pickMessage as a pure function.
   assert.doesNotMatch(pickMessage(snap(500, 50), null), /5 across/);
 });
 
@@ -37,6 +45,9 @@ test('a beta change reports both angles and the exact half-rate', () => {
 
 test('the quoted numbers come from the live state, not a constant', () => {
   // A message that hard-coded "981 N" would pass a laxer test than this.
+  // (300, BETA_SPECIAL, prev=null) is not reachable in the running app --
+  // startup is always W=500 -- so this exercises pickMessage as a pure
+  // function rather than an app-reachable state.
   const m = pickMessage(snap(300, BETA_SPECIAL), null);
   assert.match(m, /588/);        // 1.96116 * 300 = 588.3
   assert.doesNotMatch(m, /981/);
@@ -68,6 +79,9 @@ test('arriving at BETA_MIN via a beta change reports both half-rate and opened-o
 });
 
 test('a beta of 67.3 must NOT claim the 5-12-13 ratio', () => {
+  // (500, 67.3, prev=null) is not reachable in the running app -- startup is
+  // always exactly BETA_SPECIAL -- so this exercises pickMessage as a pure
+  // function rather than an app-reachable state.
   const m = pickMessage(snap(500, 67.3), null);
   assert.doesNotMatch(m, /5 across/);
 });
