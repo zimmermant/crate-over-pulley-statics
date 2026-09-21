@@ -30,6 +30,17 @@ export function arrowTip(s, which) {
   return { x: FBD_ORIGIN.x + d.x * len, y: FBD_ORIGIN.y + d.y * len };
 }
 
+// Pure, so a test can check it against sceneLabels/triangleLabels/terms without
+// a DOM. render() below must build its force labels only from this function,
+// never inline, so the FBD can never drift from what the other panels say.
+export function fbdLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
 // Project the pointer onto the arrow's own direction and read off the length.
 // Projecting -- rather than taking the raw distance from the origin -- is what
 // keeps a sideways wobble from changing the magnitude.
@@ -73,10 +84,11 @@ export function createFbd(svg, actions) {
     el('line', { x1: FBD_ORIGIN.x, y1: 40, x2: FBD_ORIGIN.x, y2: FBD_VB.h - 40,
                  stroke: '#e5e7eb', 'stroke-width': 1 }, drawRoot);
 
+    const labels = fbdLabels(s);
     const spec = [
-      ['bd', COLORS.t1, `T_BD = ${Math.round(s.TBD)} N`],
-      ['bc', COLORS.t2, `T_BC = ${Math.round(s.TBC)} N`],
-      ['ab', COLORS.w,  `T_AB = ${Math.round(s.TAB)} N`]
+      ['bd', COLORS.t1, labels.tbd],
+      ['bc', COLORS.t2, labels.tbc],
+      ['ab', COLORS.w,  labels.tab]
     ];
     const atLimit = Math.abs(s.W - WEIGHT_MIN) < 1e-9 || Math.abs(s.W - WEIGHT_MAX) < 1e-9;
     for (const [key, color, label] of spec) {

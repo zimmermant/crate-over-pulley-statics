@@ -45,6 +45,17 @@ export function ropeBcXAt(beta, y) {
   return PULLEY.x + (y - PULLEY.y) / DROP * (anchorC(beta).x - PULLEY.x);
 }
 
+// Pure, so a test can check it against fbdLabels/triangleLabels/terms without
+// a DOM. render() below must build its force labels only from this function,
+// never inline, so the scene can never drift from what the other panels say.
+export function sceneLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
 // --- drawing --------------------------------------------------------------
 export function createScene(svg, actions) {
   const drawRoot = el('g', {}, svg);
@@ -125,13 +136,14 @@ export function createScene(svg, actions) {
     text(drawRoot, PULLEY.x + 92, PULLEY.y + 58, `β = ${s.beta.toFixed(1)}°`,
          { fill: COLORS.t2, weight: 600 });
 
+    const labels = sceneLabels(s);
     const dm = { x: (D.x + PULLEY.x) / 2, y: (D.y + PULLEY.y) / 2 };
-    text(drawRoot, dm.x - 14, dm.y, `T_BD = ${Math.round(s.TBD)} N`,
+    text(drawRoot, dm.x - 14, dm.y, labels.tbd,
          { fill: COLORS.t1, weight: 600, anchor: 'end' });
-    text(drawRoot, PULLEY.x - 14, (PULLEY.y + CRATE.top) / 2, `T_AB = ${Math.round(s.TAB)} N`,
+    text(drawRoot, PULLEY.x - 14, (PULLEY.y + CRATE.top) / 2, labels.tab,
          { fill: COLORS.w, weight: 600, anchor: 'end' });
     const cm = { x: (PULLEY.x + C.x) / 2, y: (PULLEY.y + C.y) / 2 };
-    text(drawRoot, cm.x + 14, cm.y, `T_BC = ${Math.round(s.TBC)} N`,
+    text(drawRoot, cm.x + 14, cm.y, labels.tbc,
          { fill: COLORS.t2, weight: 600 });
     text(drawRoot, PULLEY.x, CRATE.top + CRATE.h / 2 + 5, `W = ${Math.round(s.W)} N`,
          { anchor: 'middle', weight: 600 });

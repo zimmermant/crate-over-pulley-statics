@@ -16,6 +16,17 @@ export function trianglePoints(s) {
 
 // Auto-fit, because this panel's job is the SHAPE of the closure, not the size.
 // The scene and the free-body diagram both carry the magnitudes.
+// Pure, so a test can check it against sceneLabels/fbdLabels/terms without a
+// DOM. render() below must build its force labels only from this function,
+// never inline, so the triangle can never drift from what the other panels say.
+export function triangleLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
 export function fitTriangle(pts, vb) {
   const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
   const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -41,10 +52,11 @@ export function createTriangle(svg) {
     const px = q => ({ x: offset.x + q.x * scale, y: offset.y - q.y * scale });
     const [a, b, c] = pts.map(px);
 
+    const labels = triangleLabels(s);
     const legs = [
-      [a, b, COLORS.w,  `T_AB = ${Math.round(s.TAB)} N`],
-      [b, c, COLORS.t2, `T_BC = ${Math.round(s.TBC)} N`],
-      [c, a, COLORS.t1, `T_BD = ${Math.round(s.TBD)} N`]
+      [a, b, COLORS.w,  labels.tab],
+      [b, c, COLORS.t2, labels.tbc],
+      [c, a, COLORS.t1, labels.tbd]
     ];
     for (const [from, to, color, label] of legs) {
       el('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y,
