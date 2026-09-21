@@ -55,6 +55,14 @@ export function clampWeight(n) { return clampTo(n, WEIGHT_MIN, WEIGHT_MAX); }
 // Pointer drags land exactly on the textbook geometry when they come close.
 // Keyboard stepping must NOT route through here: an arrow key that re-snapped
 // would fall back into the well on every press and never climb out.
+//
+// Snaps to the nearest triple within SNAP_TOL. At most one triple can be in
+// range at a time, because the closest pair of triples is 5.45° apart and the
+// tolerance is 1.5° — two windows would need to overlap at the midpoint (2.725°
+// from each), requiring windows of at least 3.0° width, but ours are only 1.5°.
+// The nearest-selection is therefore defensive: it matters if a fifth triple is
+// ever added, but with the current spacing it cannot choose among multiple
+// candidates.
 export function snapBeta(deg) {
   const v = clampBeta(deg);
   let closest = null;

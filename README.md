@@ -1,8 +1,9 @@
 # A crate over a pulley
 
 An interactive statics problem. A crate hangs from a cable that runs up over a
-pulley and down to a ground anchor; the pulley is held by a support rope. Set the
-crate's weight and slide the ground anchor, and every tension and angle resolves.
+pulley suspended by a support rope from a fixed ceiling, and down to a ground
+anchor. Set the crate's weight and slide the ground anchor; the pulley swings
+naturally as the anchor moves, and every tension and angle resolves.
 
 **Open `dist/crate_over_pulley.html` in any browser.** One file, no build step to
 view it, no network access required.
@@ -27,8 +28,10 @@ Two things follow that students rarely predict:
 - **theta moves at half beta's rate.** Slide the anchor through 20 degrees and the
   support rope turns 10.
 
-At the classic 5-12-13 geometry (beta = 67.38 deg) this gives theta = 78.69 deg
-and T_BD = 1.9612 W. Dragging the anchor near that point snaps onto it exactly.
+The app snaps to four Pythagorean-triple geometries: the 3-4-5, 5-12-13, 7-24-25,
+and 8-15-17 cases. Dragging the anchor near any snap point locks onto it exactly.
+The classic 5-12-13 triple (beta = 67.38 deg) is the textbook reference case:
+it gives theta = 78.69 deg and T_BD = 1.9612 W.
 
 ## Development
 

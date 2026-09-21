@@ -1,5 +1,37 @@
 # Lab Notebook
 
+## 2026-09-21 — Cleanup: four snap points and implicit ceiling geometry
+
+### Summary
+
+Completed downstream cleanup following Task A (four Pythagorean-triple detents, expanded range) and Task B (fixed ceiling, swinging pulley). The main work was updating messages to name each triple dynamically, fixing the template's stale viewBox, and documenting the physics improvements. All tests pass; the build is byte-reproducible.
+
+### Decisions made and why
+
+**The ceiling change is genuine physics, not cosmetic.** The original prototype pinned the pulley in place and rotated the anchor around it — a nice simplification for a first draft, but backwards. A real pulley hanging from a fixed-length rope on a fixed ceiling genuinely swings when the ground anchor moves. The revised geometry is more faithful to the physics and more interesting for students: they see that the pulley's position is determined by the geometry itself, not by an external knob.
+
+**The geometry is now implicit.** In the old design, beta was an independent parameter that drove everything else. Now the geometry closes on itself: the pulley's position depends on theta, theta depends on beta (from the force balance), and beta depends on where the pulley is (from the rope lengths). A pointer drag therefore solves for beta rather than setting it directly. The solver uses bisection on the monotonic relationship between ground position and beta, with a tolerance of 2.8e-14 degrees — essentially exact. Each round-trip Cx → beta → Cx reproduces the input to machine precision.
+
+**The constants were re-derived by geometric sweep, not adjusted by eye.** The new viewBox is 720 × 680. The ceiling is at y = 44, the anchor D at x = 140, the rope length 230, the ground at y = 635, and the crate 88 × 78 hanging 250 units below the pulley. Beta ranges [44°, 77°]. The pulley swings 63.8 pixels horizontally and 16.8 pixels vertically. The worst-case rope-to-crate clearance is 13.7 pixels. Every dimension was justified by measurement, not guessed.
+
+**The four Pythagorean triples are oriented short-leg-across, long-leg-down.** This orientation matches how the classic figure reads: "5 across for every 12 down, 13 along the rope." The alternative (long-leg-across, short-leg-down) would place the anchor far off-screen at the reachable angles, so this reading is also the only one that fits the constrained domain.
+
+**The snap tolerance stayed at 1.5°.** The four detents are at least 5.45° apart (the closest pair) and at least 3.26° from the beta rails. At 1.5° tolerance, each snap window neither overlaps with another nor blocks a rail. The snap windows span 27–38 pixels of ground travel. The geometry guarantees at most one triple can be within SNAP_TOL at any time, so the "nearest triple" search cannot collide; the nearest-selection logic is defensive rather than load-bearing.
+
+**The glyph's position at 0.70 along the rope is load-bearing.** Before any code was written, the rope slope glyph's position was measured at several fractions along the rope to check for collisions with the T_BC label. At 0.50 and 0.60 it collided at every detent; at 0.70 it cleared by at least 20 pixels. This was caught by measuring the mockup, unlike two earlier label collisions in this project which were only discovered by rendering a live version.
+
+**A mutation proof requested for Task A turned out to be vacuous.** The implementer was asked to prove that snapBeta selects the nearest triple, and correctly reported that the proof was vacuous: the geometry guarantees at most one triple is in range, so "nearest" and "first in range" are indistinguishable. The lesson: a proof that something "chooses the nearest X" cannot fail when the preconditions already force uniqueness. The nearest-selection stayed in the code because it matters if more triples are added later, but it's documented as defensive.
+
+### Problems encountered and how they were resolved
+
+**Test failure on stale viewBox.** The scene's SVG viewBox was unchanged from the initial build despite the scene's contents growing taller. The test caught this immediately; the fix was a one-character edit: `620` → `680`.
+
+**No hardcoded integers in messages.** The original message contained "5 across for every 12 down, 13 along its length" as literal strings. This made adding three more triples awkward. The solution was to import `tripleAt` from physics.js and use it both to detect the detent and to fill the message's integers dynamically. Each triple now produces a message with its own numbers. The 5-12-13 case gets an additional note that it is the original textbook problem.
+
+### Open questions / next steps
+
+None. The app is feature-complete and the test suite is at 74 tests, all passing. The build is byte-reproducible.
+
 ## 2026-09-21 — Initial build
 
 ### Summary
