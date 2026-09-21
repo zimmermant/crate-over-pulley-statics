@@ -85,6 +85,14 @@ export function slopeGlyph(beta) {
   return { p0, p1, p2, triple: t };
 }
 
+// The angle between the two LOADED rope segments (BA straight down, BC toward the
+// anchor), and the angle the support rope makes with vertical. The second is always
+// exactly half the first: that is the bisector property this whole app is about,
+// and T_BD = 2W*cos(delta) uses delta directly.
+export function interiorAngles(s) {
+  return { gamma: 90 - s.beta, delta: 90 - s.theta };
+}
+
 // Pure, so a test can check it against fbdLabels/triangleLabels/terms without
 // a DOM. render() below must build its force labels only from this function,
 // never inline, so the scene can never drift from what the other panels say.
@@ -155,6 +163,19 @@ export function createScene(svg, actions) {
     arc(drawRoot, pulley, 55, 180, 180 - s.theta, COLORS.t1);
     arc(drawRoot, pulley, 75, 0, -s.beta, COLORS.t2);
 
+    // gamma (interior angle BA-BC) and delta (angle of BD from vertical) -- the
+    // bisector property the whole app teaches: delta is always exactly gamma/2.
+    // Both are drawn in the muted annotation ink so they read as measurement, not
+    // rope. delta's arc shares its BD ray with the theta arc; gamma's shares its BC
+    // ray with the beta arc -- radii 38 and 46 keep all four arcs visually distinct
+    // (theta=55, beta=75). delta needs an explicit vertical reference (drawn here as
+    // a short dashed line rising from B) since "vertical" isn't otherwise drawn at B;
+    // gamma needs none -- the crate's rope A-B is already the vertical-down ray.
+    el('line', { x1: pulley.x, y1: pulley.y, x2: pulley.x, y2: pulley.y - 50,
+                 stroke: COLORS.annot, 'stroke-width': 1.5, 'stroke-dasharray': '3 3' }, drawRoot);
+    arc(drawRoot, pulley, 38, 90, 180 - s.theta, COLORS.annot);
+    arc(drawRoot, pulley, 46, -90, -s.beta, COLORS.annot);
+
     // crate
     const cx = pulley.x - CRATE.w / 2;
     el('rect', { x: cx, y: crateTop, width: CRATE.w, height: CRATE.h, rx: 4,
@@ -215,6 +236,40 @@ export function createScene(svg, actions) {
          { fill: COLORS.t1, weight: 600, anchor: 'end' });
     text(drawRoot, pulley.x + 92, pulley.y + 58, `β = ${s.beta.toFixed(1)}°`,
          { fill: COLORS.t2, weight: 600 });
+
+    // gamma/delta labels -- placed OUTSIDE their own wedges, beside the arc,
+    // rather than at the arc's midpoint angle (the previous approach, which put
+    // the label INSIDE the wedge it measures). Both wedges are too narrow for a
+    // ~66px label across the reachable range -- delta (vertical-to-BD) is only
+    // 6.5-23 deg wide, gamma (crate-rope-to-BC) only 13-46 deg wide -- so a label
+    // centred in either one always crossed a bounding ray; that was the bug
+    // (measured, before this fix: gamma and delta both had 0px rope clearance at
+    // beta=44, vs. 48.9px/20.1px for theta/beta). The dashed arc still shows which
+    // angle is meant; putting the number beside it instead of inside it is
+    // ordinary technical-drawing practice when a wedge is too tight for its text.
+    //
+    // Both offsets are FIXED relative to the (moving) pulley -- the same
+    // technique theta/beta's value labels above already use, not an
+    // arc-midpoint formula -- placed in the open area up and to the right of the
+    // pulley where no rope ever runs (BD occupies up-left, the crate rope
+    // straight down, BC down-right). Gamma sits just above horizontal (outside
+    // its own wedge, which occupies the area from straight-down to the BC rope);
+    // delta sits further up and to the right (outside its wedge, which occupies
+    // the area from straight-up to the BD rope). Chosen by sweeping a numeric
+    // proxy for every label/rope bounding box across the whole beta range at
+    // several weights and detents (see lab_notebook.md), not by eye -- worst
+    // measured clearance in that proxy is ~40px against every rope and every
+    // other label, well clear of the 15px/12px minimums the existing theta/beta
+    // labels themselves meet.
+    const angles = interiorAngles(s);
+    const GAMMA_LABEL = { angle: -2, radius: 75 };
+    const DELTA_LABEL = { angle: 63, radius: 75 };
+    text(drawRoot, pulley.x + GAMMA_LABEL.radius * Math.cos(GAMMA_LABEL.angle * DEG),
+         pulley.y - GAMMA_LABEL.radius * Math.sin(GAMMA_LABEL.angle * DEG), `γ = ${angles.gamma.toFixed(1)}°`,
+         { fill: COLORS.annot, weight: 600, anchor: 'start' });
+    text(drawRoot, pulley.x + DELTA_LABEL.radius * Math.cos(DELTA_LABEL.angle * DEG),
+         pulley.y - DELTA_LABEL.radius * Math.sin(DELTA_LABEL.angle * DEG), `δ = ${angles.delta.toFixed(1)}°`,
+         { fill: COLORS.annot, weight: 600, anchor: 'start' });
 
     const labels = sceneLabels(s);
     const dm = { x: (ANCHOR_D.x + pulley.x) / 2, y: (ANCHOR_D.y + pulley.y) / 2 };

@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BETA_MIN, BETA_MAX, BETA_SPECIAL, tripleBeta } from '../src/physics.js';
+import { DEG, BETA_MIN, BETA_MAX, BETA_SPECIAL, tripleBeta, solve } from '../src/physics.js';
 import {
   SCENE_VB, CEIL_Y, ANCHOR_D, GROUND_Y, CRATE, ANCHOR_R,
-  pulleyAt, anchorC, ropeBcXAt, betaFromPointerX, keyboardStep, slopeGlyph
+  pulleyAt, anchorC, ropeBcXAt, betaFromPointerX, keyboardStep, slopeGlyph,
+  interiorAngles
 } from '../src/scene.js';
 
 test('every reachable beta keeps the drawing inside the panel and clear of the crate', () => {
@@ -105,5 +106,43 @@ test('slopeGlyph is null off a detent and matches the measured construction on o
     // The hypotenuse must always be exactly 46px, whatever the triple.
     const hyp = Math.hypot(glyph.p2.x - glyph.p0.x, glyph.p2.y - glyph.p0.y);
     assert.ok(Math.abs(hyp - 46) < 1e-9, `hypotenuse length drifted at ${row.across}-${row.down}-${row.hyp}`);
+  }
+});
+
+test('interiorAngles returns 90 - beta and 90 - theta across the whole sweep', () => {
+  for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.25) {
+    const theta = 45 + beta / 2;
+    const { gamma, delta } = interiorAngles({ beta, theta });
+    assert.strictEqual(gamma, 90 - beta, `gamma at beta=${beta}`);
+    assert.strictEqual(delta, 90 - theta, `delta at beta=${beta}`);
+  }
+});
+
+// Mutation proof (recorded in the final task report): temporarily changing
+// interiorAngles' delta field to read `90 - s.beta` (i.e. the same expression as
+// gamma) makes this test fail across the whole sweep, since the ratio collapses
+// to 1 instead of 2.
+test('delta is exactly gamma/2 at every reachable beta -- the bisector property the app teaches', () => {
+  for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.1) {
+    const theta = 45 + beta / 2;
+    const { gamma, delta } = interiorAngles({ beta, theta });
+    assert.ok(Math.abs(delta - gamma / 2) < 1e-12,
+      `delta=${delta} is not exactly gamma/2=${gamma / 2} at beta=${beta}`);
+  }
+});
+
+// Mutation proof (recorded in the final task report): the same `delta = 90 -
+// s.beta` mutation above also fails this test across the whole sweep, since
+// 2*cos(delta) then no longer matches TBD/W. This ties the displayed angle to
+// the force formula in equations.js's T_BD = 2W*cos(delta), not just to gamma.
+test('2 * cos(delta) equals solve().TBD / W at every reachable beta', () => {
+  for (const W of [100, 337, 600]) {
+    for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.1) {
+      const theta = 45 + beta / 2;
+      const { delta } = interiorAngles({ beta, theta });
+      const { TBD } = solve({ W, beta });
+      assert.ok(Math.abs(2 * Math.cos(delta * DEG) - TBD / W) < 1e-12,
+        `2*cos(delta) vs TBD/W mismatch at W=${W} beta=${beta}`);
+    }
   }
 });

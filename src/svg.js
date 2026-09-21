@@ -7,7 +7,10 @@ export const COLORS = {
   t1: '#e06c3a',   // support rope tension T_BD
   t2: '#3a86c8',   // rope to the ground anchor, T_BC
   w:  '#6b7280',   // the crate's weight W
-  ink: '#111827'   // pulley, ropes and structure
+  ink: '#111827',  // pulley, ropes and structure
+  annot: '#9aa3af' // muted ink for measurement annotations (gamma/delta arcs and
+                    // their reference line) -- distinct from every rope/force color
+                    // so they read as "the geometry teacher drew on it", not as rope
 };
 
 export function el(name, attrs = {}, parent = null) {

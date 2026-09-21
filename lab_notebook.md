@@ -1,5 +1,184 @@
 # Lab Notebook
 
+## 2026-09-21 — Fix: gamma/delta labels moved outside their own wedges
+
+### Summary
+
+Fixed a label-placement defect in the gamma/delta angle readouts added earlier
+today. Todd rendered the built file and measured real `getBBox` clearances:
+theta and beta (the pre-existing labels) cleared every rope by 48.9px and
+20.1px respectively; gamma and delta — the two labels added in this session —
+sat directly on top of a rope (0px clearance) at beta=44. Root cause: the
+placement instruction put each label at its own arc's *midpoint angle*, which
+is a point *inside the wedge the label measures*. Both wedges are too narrow
+for a ~66px label across the reachable domain, so the label always crossed one
+of the two bounding rays. Fixed by moving both labels outside their wedges —
+beside the arc rather than inside it — at fixed pixel offsets from the pulley,
+the same technique the existing theta/beta value labels already use. All 80
+tests still pass; the build is byte-reproducible (identical SHA-256 across two
+runs, 48263 bytes).
+
+### Decisions made and why
+
+**Verified the task's own wedge-width figures rather than trusting them, per
+its own instruction.** The task stated delta's wedge is "13°–23° wide" across
+the range. Recomputing from the actual formulas (`delta = 45 - beta/2`, beta in
+[44°,77°]) gives delta ∈ [6.5°, 23°], not [13°, 23°] — the lower bound was off
+by a factor of two. Gamma's stated range (13°–46°) checked out exactly. This
+doesn't change the fix (the wedge is still too narrow either way — if anything
+the corrected figure is narrower, reinforcing the point), but the task asked
+explicitly to verify rather than trust its numbers, so the discrepancy is
+recorded here rather than silently absorbed.
+
+**Placement uses a fixed pixel offset from the pulley, not an angle that
+tracks the wedge.** This mirrors how theta's and beta's own value labels are
+already placed (`pulley.x - 78, pulley.y - 46` and `pulley.x + 92, pulley.y +
+58` — constants, not functions of the swept angle). A fixed offset is simpler
+to reason about and, since the free area up-and-right of the pulley never
+contains any rope at any reachable beta, doesn't need to track anything.
+
+**Built a numeric harness (not committed, same approach as the previous
+session's) to find and verify the offsets, rather than eyeballing them.** The
+harness (`scratchpad/harness.mjs` under this session's temp directory) imports
+the real `pulleyAt`, `anchorC`, `interiorAngles`, `slopeGlyph` etc. from
+src/physics.js and src/scene.js — no DOM needed, since none of those are
+DOM-touching — and for a grid of (angle, radius, anchor) candidates measures,
+via segment-to-rectangle and rectangle-to-rectangle distance (exact, not
+sampled), the worst-case clearance of each candidate gamma/delta label against
+all three rope segments and against every other label the scene draws
+(theta, beta, T_AB, T_BC, T_BD, W, the point labels A/B/C/D, and — at the four
+Pythagorean-triple detents — the slope-glyph's three integer labels). Swept
+beta from 44° to 77° in 0.5°/0.2° steps (two passes, finer on the final check)
+at W = 100/350/600 (finer W grid on the final check), plus the four detents
+exactly. Text boxes are the proxy the task specified: 7.3px/char width at the
+13px font (scaled for the glyph's 12px digits), 15px height, anchor-relative
+(baseline-left for `start`, baseline-right for `end`, centered for `middle`).
+
+Searched radius 55–150px at 1–2° angle steps on the open side (roughly
+-30°..130°, standard math-angle convention, 0=right/90=up from the pulley).
+Margins grow roughly linearly with radius; picked radius 75px for both labels
+(close to the original, merely-mis-angled offsets of 68px/86px, so the visual
+distance from the pulley is barely changed — only the angle is) as a balance
+between staying visually near the arcs and keeping real margin against the
+proxy's own uncertainty (no actual font metrics). Final choice: gamma at
+angle -2° (just above horizontal, on the open side away from the BC-rope
+wedge), delta at angle 63° (well up and to the right, on the open side away
+from the BD-rope wedge), both anchor `start` (text grows away from the pulley,
+never back across a rope).
+
+**Did not add leader lines.** The task offered them as optional if the
+association between arc and displaced label wasn't clear. At 75px out and
+comfortably inside the open quadrant, gamma and delta read unambiguously as
+"the annotation near that arc" without one; skipped to keep the diff minimal,
+per "only the two text placements change."
+
+### Problems encountered and how they were resolved
+
+**None requiring a design change.** The first parameter grid the harness
+tried (radius up to 150px) already found solutions with huge margins (100+px);
+the only real decision was choosing a smaller, more visually conservative
+radius from the many that worked, which just needed a second, narrower sweep
+(55–90px) to map out the margin-vs-radius tradeoff before picking 75px.
+
+### Open questions / next steps
+
+**This is a proxy, not a browser measurement.** Worst-case clearances the
+harness measured for the final placement (gamma at angle -2°/radius 75,
+delta at angle 63°/radius 75, both from the pulley):
+
+- gamma vs. every rope: worst 47.3px (vs. BC rope, at beta=44, W=100)
+- gamma vs. every other label: worst 40.4px (vs. the beta value label, at beta=44, W=100)
+- delta vs. every rope: worst 40.9px (vs. BD rope, at beta=77, W=100)
+- delta vs. every other label: worst 40.1px (vs. the "B" point label, at beta≈44.2, W=100)
+- gamma vs. delta (mutual): worst 54.4px
+
+All comfortably above the 15px (rope) / 12px (label) thresholds, with roughly
+2.5-3x margin — deliberately larger than the ~20px margin the existing beta
+label has, to absorb error in the character-width/height proxy, since real
+glyphs (θβγδ, the degree sign) were not measured. Todd said he would confirm
+with real `getBBox` measurements in a browser; that check is still open.
+**Recommend re-running the same beta=44°/low-beta sweep in a real browser
+first**, since that's where every worst-case above clustered.
+
+## 2026-09-21 — Two more angle readouts at B: gamma and delta
+
+### Summary
+
+Added two angle readouts at the pulley B, on top of the existing theta/beta: gamma
+(the interior angle between rope BA, straight down, and rope BC, beta below
+horizontal — always `90 - beta`) and delta (the angle rope BD makes with vertical —
+always `90 - theta`, hence `45 - beta/2`). Both are exposed as a pure function
+`interiorAngles(s)` in `src/scene.js`, drawn as two more arcs at B plus a short
+dashed vertical reference line for delta, and covered by three new tests in
+`test/scene.test.js`. All 80 tests pass; the build is byte-reproducible (identical
+SHA-256 across two runs, 46960 bytes).
+
+### Decisions made and why
+
+**Delta is exactly gamma/2, always — that's the point of the readout.** `gamma =
+90 - beta`, `delta = 90 - theta = 90 - (45 + beta/2) = 45 - beta/2 = gamma/2`
+identically, not just numerically close. This is the same halving fact the README
+already states in words ("theta moves at half beta's rate") made visible as two
+numbers side by side. The new test pins the ratio to 1e-12 and a second test ties
+`2*cos(delta)` directly to `solve().TBD / W`, so the displayed angle and the force
+formula in equations.js can never quietly drift apart.
+
+**Letter choice (gamma/delta).** The task invited an objection to using gamma/delta
+alongside the existing theta/beta. I don't see one: theta-beta-gamma-delta is the
+ordinary sequence a physics student already expects, and the four glyphs (θ β γ δ)
+are visually distinct enough not to be confused at a glance. Proceeded without
+raising an objection.
+
+**New arcs use a muted "annotation ink" color, not a new rope color.** Added
+`COLORS.annot = '#9aa3af'` to `src/svg.js` — a gray distinct from t1/t2/w/ink — so
+gamma's and delta's arcs and delta's reference line read as measurement overlay,
+not as a fourth rope. `arc()` itself was untouched; the two new arcs are additional
+calls to the same helper (radius 38 for delta, 46 for gamma — smaller than the
+existing theta=55 and beta=75 arcs, per spec, keeping all four visually distinct).
+Existing theta/beta arcs, their exact radii and sweep flags, were not touched.
+
+**Label offsets were pushed further out than the spec's starting point, based on a
+numeric (not visual) collision check.** The task suggested starting each label at
+`arc radius + 20` and adjusting if needed. Since I have no browser in this
+environment, I wrote a throwaway Node script (not committed) that reproduces each
+label's approximate SVG bounding box — position from the real `pulleyAt`/`anchorC`
+geometry, width estimated from character count at a few different width-factors to
+bracket font-metric uncertainty — and swept the whole beta range at 0.05-0.1 degree
+steps. At the spec's default offsets, gamma's label grazed the fixed-position beta
+VALUE label by a few pixels right at beta's low end (44°), and delta's label
+grazed the fixed-position theta VALUE label the same way. Both are real, if narrow,
+collisions in the proxy model, not an artifact of one width-factor choice — they
+persisted across width-factors 0.55–0.70. Pushing the offsets out (delta: arc
+radius + 30, gamma: arc radius + 40) cleared both with margin across the entire
+swept range and every other label/rope pair checked (T_AB, T_BC, T_BD, W, A, B, C,
+D, the crate rope). Arc radii themselves (38, 46) were left exactly as specified —
+only the label offsets, which the spec explicitly allowed adjusting, were changed.
+
+**This numeric check is not a substitute for actually looking at the app.** The
+bounding-box proxy has no real font metrics, no halo-stroke geometry, and doesn't
+know how the browser actually shrinks/kerns "θ = 67.4°" vs "γ = 46.0°". It is
+useful for catching a gross, unambiguous overlap (which it did, at the spec's
+default offsets) and confirming the fix has real margin, not for guaranteeing the
+rendered result looks right. **The rendered appearance and any label crowding
+around B are unverified** — this environment has no browser to check them in.
+
+### Problems encountered and how they were resolved
+
+**Spec's default label offsets (+20) produced a narrow but real overlap at the
+low end of beta.** Found by the numeric sweep described above, not by visual
+inspection. Resolved by increasing the offsets (see above) rather than by
+weakening the check or shipping the collision.
+
+### Open questions / next steps
+
+The rendered scene at B — now carrying four arcs, four angle labels, three tension
+labels, four point labels, the crate rope, and (at four specific beta values) the
+slope-triangle glyph — has not been visually inspected. Recommend opening
+`dist/crate_over_pulley.html` in a real browser and dragging beta across its full
+range, paying particular attention to beta near 44° (where the numeric check found
+the narrowest margins) and to the four detent betas where the slope glyph also
+appears near B's neighborhood.
+
 ## 2026-09-21 — Cleanup: four snap points and implicit ceiling geometry
 
 ### Summary
