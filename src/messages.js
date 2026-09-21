@@ -1,0 +1,82 @@
+import { tripleAt, BETA_MIN, BETA_MAX } from './physics.js';
+
+// Pure, so it can be tested without a DOM. Every number is rounded here, at the
+// moment of display, from the live unrounded state -- never hard-coded.
+
+function detentMessage(s, triple) {
+  const tbd = Math.round(s.TBD);
+  const textbookNote = triple.across === 5 && triple.down === 12 ?
+    ` This is the classic textbook case.` : '';
+  const ratio = (s.TBD / s.W).toFixed(2);
+  return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
+         `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
+         `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
+         `T_BD = ${ratio} W = ${tbd} N.`;
+}
+
+export function pickMessage(s, prev) {
+  const w = Math.round(s.W);
+  const tbd = Math.round(s.TBD);
+  const changedW = prev && Math.abs(s.W - prev.W) > 1e-9;
+  const changedB = prev && Math.abs(s.beta - prev.beta) > 1e-9;
+  // Exact, not a tolerance: only setBeta's pointer snap (and the opening state)
+  // land here, and only there does one of the Pythagorean triple ratios actually hold.
+  const triple = tripleAt(s.beta);
+  const atMax = s.beta >= BETA_MAX - 1e-9;
+  const atMin = s.beta <= BETA_MIN + 1e-9;
+
+  if (changedW) {
+    return `W went from ${Math.round(prev.W)} N to ${w} N and θ did not move. ` +
+           `It never does — θ = 45° + β/2 depends only on where C sits. ` +
+           `T_BD scaled with the load, to ${tbd} N.`;
+  }
+
+  if (changedB) {
+    if (triple) {
+      return detentMessage(s, triple);
+    }
+    const db = Math.abs(s.beta - prev.beta);
+    const half = `β moved ${db.toFixed(1)}°, θ moved ${(db / 2).toFixed(1)}°. ` +
+                 `θ always moves half as far, because the support rope tracks the ` +
+                 `bisector of the two rope segments. Now θ = ${s.theta.toFixed(1)}°, ` +
+                 `T_BD = ${tbd} N.`;
+    if (atMax) {
+      return half + ` The anchor is as steep as it goes: both segments now pull almost ` +
+             `straight down and their resultant approaches 2W, already at ${(s.TBD / s.W).toFixed(2)} W.`;
+    }
+    if (atMin) {
+      return half + ` The anchor is as far out as it goes: the two pulls have opened up, ` +
+             `with their resultant down to ${(s.TBD / s.W).toFixed(2)} W, and a horizontal BC ` +
+             `would approach √2·W.`;
+    }
+    return half;
+  }
+
+  // No change: the first render of the session. The app always opens at
+  // a detent (see state.js's createState), so triple is always non-null here and
+  // this branch is the only one of this function's "first render" branches that is
+  // ever actually reached.
+  if (triple) {
+    return detentMessage(s, triple);
+  }
+
+  // Unreachable in the running app: prev === null only happens on the startup
+  // render, and startup always lands on the detent, which the branch above
+  // always catches first. This is kept as the correct default first-render
+  // message for a state other than the detent, in case the opening state ever
+  // changes -- and pickMessage is still exercised directly at prev = null with
+  // other betas, as a pure function, in messages.test.js.
+  return `A frictionless pulley redirects the rope without changing its tension, so both ` +
+         `segments carry ${w} N. Two equal pulls add along the bisector of the angle ` +
+         `between them, which is why θ = ${s.theta.toFixed(1)}° and ` +
+         `T_BD = ${tbd} N.`;
+}
+
+export function createMessages(node) {
+  let prev = null;
+  function render(s) {
+    node.textContent = pickMessage(s, prev);
+    prev = s;
+  }
+  return { render };
+}

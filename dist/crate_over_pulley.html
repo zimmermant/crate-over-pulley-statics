@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A crate over a pulley</title>
+<style>
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  padding: 16px;
+  background: #f7f7f8;
+  color: #111827;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+h1 { font-size: 20px; margin: 0 0 4px; }
+.lede { margin: 0 0 16px; color: #555b66; font-size: 14px; }
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  max-width: 1400px;
+}
+
+.panel {
+  background: #fff;
+  border: 1px solid #e3e5e9;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.panel > h2 {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #6b7280;
+  background: #fafafb;
+  border-bottom: 1px solid #eceef1;
+}
+
+.panel svg { display: block; width: 100%; height: auto; }
+
+.panel--short svg { max-height: 300px; }
+
+#equations {
+  padding: 14px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 14px;
+  line-height: 2;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  flex-wrap: wrap;
+}
+.controls label { font-size: 14px; font-weight: 600; }
+.controls input[type=range] { width: 260px; }
+.controls input[type=number] { width: 90px; padding: 4px 6px; font-size: 14px; }
+
+#messages { margin: 14px 0 0; min-height: 22px; font-size: 14px; color: #8a5a20; }
+#messages:empty { display: none; }
+
+.note { margin-top: 14px; font-size: 12px; color: #6b7280; max-width: 1400px; }
+
+/* Drag affordances: every handle must visibly respond. */
+.handle { cursor: grab; }
+.handle:hover  circle, .handle:hover  .hit { filter: brightness(1.15); }
+.handle:active { cursor: grabbing; }
+.handle:focus  { outline: none; }
+.handle:focus-visible circle { stroke: #111827; stroke-width: 2.5; }
+.handle--active circle { filter: brightness(1.2); }
+.handle--active .hit   { fill: rgba(17, 24, 39, 0.06); }
+/* At a clamp limit, render visibly pinned rather than silently refusing to move. */
+.handle--limit circle { stroke-dasharray: 3 2; }
+
+@media (max-width: 900px) {
+  .grid { grid-template-columns: 1fr; }
+}
+
+</style>
+</head>
+<body>
+<h1>A crate over a pulley</h1>
+<p class="lede">Set the crate&rsquo;s weight, or slide the anchor on the ground to change where the rope runs. The pulley cannot change the rope&rsquo;s tension &mdash; only its direction.</p>
+
+<div class="controls">
+  <label for="w-range">Crate weight</label>
+  <input type="range" id="w-range" min="100" max="600" step="1" value="500">
+  <input type="number" id="w-number" min="100" max="600" step="1" value="500" aria-label="Crate weight in newtons">
+  <span>N</span>
+</div>
+
+<div class="grid">
+  <section class="panel"><h2>The situation</h2><svg id="scene-svg" viewBox="0 0 720 680"></svg></section>
+  <section class="panel"><h2>Free-body diagram of the pulley</h2><svg id="fbd-svg" viewBox="0 0 720 620"></svg></section>
+  <section class="panel panel--short"><h2>Force triangle</h2><svg id="triangle-svg" viewBox="0 0 480 380"></svg></section>
+  <section class="panel panel--short"><h2>Equations</h2><div id="equations"></div></section>
+</div>
+
+<p id="messages"></p>
+
+<p class="note">A frictionless pulley redirects a rope without changing its tension, so both segments of the cable carry the crate&rsquo;s weight. Two equal pulls add to a resultant along the bisector of the angle between them &mdash; which is why the support rope always sits at &theta; = 45&deg; + &beta;/2, and why loading the crate more heavily never moves it.</p>
+
+<script>
+(function () {
+"use strict";
+// ===== physics.js =====
+// Statics of a crate hung over a pulley, with the pulley held by a support rope.
+//
+// The rope runs from the crate at A, up over the pulley at B, and down to a
+// ground anchor at C. A frictionless pulley redirects a rope without changing
+// its tension, so BOTH segments carry the crate's weight W. That one constraint
+// is what makes the problem determinate: it supplies a fourth equation, and the
+// support rope's angle theta stops being an input and becomes an answer.
+//
+// No DOM. Degrees in, degrees out; radians live only inside this file.
+
+const DEG = Math.PI / 180;
+
+const BETA_MIN = 44;
+const BETA_MAX = 77;
+const WEIGHT_MIN = 100;
+const WEIGHT_MAX = 600;
+
+// The Pythagorean triples the rope can snap to. Each is oriented with the SHORT leg
+// across and the LONG leg down, which is how the classic figure reads: "5 across for
+// every 12 down, 13 along the rope". Named ascending, across-down-hyp.
+const TRIPLES = [
+  { across: 3, down: 4,  hyp: 5 },
+  { across: 8, down: 15, hyp: 17 },
+  { across: 5, down: 12, hyp: 13 },
+  { across: 7, down: 24, hyp: 25 }
+];
+
+function tripleBeta(t) { return Math.atan2(t.down, t.across) / DEG; }
+
+function tripleAt(beta) {
+  for (const t of TRIPLES) {
+    if (Math.abs(beta - tripleBeta(t)) < 1e-9) {
+      return t;
+    }
+  }
+  return null;
+}
+
+// The figure's 5-12-13 slope: 5 across for every 12 down.
+const BETA_SPECIAL = tripleBeta(TRIPLES[2]);
+const SNAP_TOL = 1.5;
+
+// Coerces its own parameter because it does arithmetic -- a non-numeric or
+// non-finite input would silently produce NaN, and a comparison against NaN is
+// always false, so an unguarded clamp would return the bad value untouched.
+function clampTo(v, lo, hi) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return lo;
+  return n < lo ? lo : n > hi ? hi : n;
+}
+
+function clampBeta(deg) { return clampTo(deg, BETA_MIN, BETA_MAX); }
+function clampWeight(n) { return clampTo(n, WEIGHT_MIN, WEIGHT_MAX); }
+
+// Pointer drags land exactly on the textbook geometry when they come close.
+// Keyboard stepping must NOT route through here: an arrow key that re-snapped
+// would fall back into the well on every press and never climb out.
+//
+// Snaps to the nearest triple within SNAP_TOL. At most one triple can be in
+// range at a time, because the closest pair of triples is 5.45° apart and the
+// tolerance is 1.5° — two windows would need to overlap at the midpoint (2.725°
+// from each), requiring windows of at least 3.0° width, but ours are only 1.5°.
+// The nearest-selection is therefore defensive: it matters if a fifth triple is
+// ever added, but with the current spacing it cannot choose among multiple
+// candidates.
+function snapBeta(deg) {
+  const v = clampBeta(deg);
+  let closest = null;
+  let closestDist = SNAP_TOL + 1;
+  for (const t of TRIPLES) {
+    const tBeta = tripleBeta(t);
+    const dist = Math.abs(v - tBeta);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = t;
+    }
+  }
+  if (closestDist <= SNAP_TOL && closest !== null) {
+    return tripleBeta(closest);
+  }
+  return v;
+}
+
+// Both rope segments carry W, and the resultant of two equal pulls lies along
+// the bisector of the angle between them. The segments pull along -90 degrees
+// (down to the crate) and -beta (down to the anchor), so their resultant lies
+// at -(90 + beta)/2, and the support rope -- which cancels it -- lies opposite:
+//     theta = 45 + beta/2          measured from the NEGATIVE x-axis
+//     T_BD  = 2 W cos(45 - beta/2)
+function solve({ W, beta }) {
+  const b = beta * DEG;
+  return {
+    TAB: W,
+    TBC: W,
+    TBD: 2 * W * Math.cos(Math.PI / 4 - b / 2),
+    theta: 45 + beta / 2
+  };
+}
+
+// Inverse of the arrow lengths, for dragging an FBD arrowhead. Every arrow is a
+// fixed multiple of W at a given beta, so any one of them determines W.
+function weightFromMagnitude(mag, which, beta) {
+  const m = Number(mag);
+  if (!Number.isFinite(m)) return WEIGHT_MIN;
+  if (which === 'bd') {
+    const k = 2 * Math.cos(Math.PI / 4 - clampBeta(beta) * DEG / 2);
+    return clampWeight(m / k);
+  }
+  return clampWeight(m);        // the 'ab' and 'bc' arrows are both W long
+}
+
+// ===== svg.js =====
+const NS = 'http://www.w3.org/2000/svg';
+
+// One palette for the whole app. It lives here rather than in each renderer
+// because build.js concatenates every module into a single scope, so a
+// top-level `const C1` in three files would collide and fail the build.
+const COLORS = {
+  t1: '#e06c3a',   // support rope tension T_BD
+  t2: '#3a86c8',   // rope to the ground anchor, T_BC
+  w:  '#6b7280',   // the crate's weight W
+  ink: '#111827'   // pulley, ropes and structure
+};
+
+function el(name, attrs = {}, parent = null) {
+  const node = document.createElementNS(NS, name);
+  for (const k in attrs) {
+    const v = attrs[k];
+    if (v !== null && v !== undefined) node.setAttribute(k, String(v));
+  }
+  if (parent) parent.appendChild(node);
+  return node;
+}
+
+function clear(node) {
+  while (node.firstChild) node.removeChild(node.firstChild);
+}
+
+// Text with a background-coloured halo so labels stay readable where they cross lines.
+function text(parent, x, y, str, opts = {}) {
+  const node = el('text', {
+    x, y,
+    'font-size': opts.size || 13,
+    'font-family': 'system-ui, -apple-system, sans-serif',
+    fill: opts.fill || COLORS.ink,
+    'text-anchor': opts.anchor || 'start',
+    'font-weight': opts.weight || 400,
+    'paint-order': 'stroke',
+    stroke: '#ffffff',
+    'stroke-width': opts.halo === false ? 0 : 3.5,
+    'stroke-linejoin': 'round'
+  }, parent);
+  node.textContent = str;
+  return node;
+}
+
+// Pointer position in viewBox units. Handles CSS scaling and page scroll correctly,
+// which naive clientX - rect.left arithmetic does not.
+function clientToSvg(svg, clientX, clientY) {
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+
+// ===== state.js =====
+
+
+// The ONLY stored state is these two numbers. Every tension and theta is derived
+// on read, which is what makes it structurally impossible for two panels to
+// disagree -- there is one copy of the truth.
+function createState() {
+  let W = 500;
+  let beta = BETA_SPECIAL;
+  let subscribers = [];
+
+  function getState() {
+    const { TAB, TBC, TBD, theta } = solve({ W, beta });
+    return { W, beta, TAB, TBC, TBD, theta };
+  }
+
+  function notify() {
+    const snapshot = getState();
+    for (const fn of subscribers.slice()) fn(snapshot);
+  }
+
+  // Pointer path: lands exactly on the textbook geometry when it comes close.
+  function setBeta(deg) {
+    const v = snapBeta(deg);
+    if (v === beta) return;
+    beta = v;
+    notify();
+  }
+
+  // Keyboard path: clamps but never snaps, so repeated arrow presses move on a
+  // uniform grid and can never be trapped in the detent's well.
+  function setBetaExact(deg) {
+    const v = clampBeta(deg);
+    if (v === beta) return;
+    beta = v;
+    notify();
+  }
+
+  function setWeight(n) {
+    const v = clampWeight(n);
+    if (v === W) return;
+    W = v;
+    notify();
+  }
+
+  function subscribe(fn) {
+    subscribers.push(fn);
+    return () => { subscribers = subscribers.filter(f => f !== fn); };
+  }
+
+  return { getState, setBeta, setBetaExact, setWeight, subscribe };
+}
+
+// ===== scene.js =====
+
+
+
+// --- geometry -------------------------------------------------------------
+// Every constant below was fixed by the sweep in test/scene.test.js, which
+// walks the whole beta range checking crate clearance and viewBox containment.
+// Change one and re-run that test before believing the result.
+const SCENE_VB = { w: 720, h: 680 };
+const CEIL_Y = 44;
+const ANCHOR_D = { x: 140, y: CEIL_Y };
+const ROPE_BD_LEN = 230;
+const GROUND_Y = 635;
+const CRATE = { w: 88, h: 78, drop: 250 };
+const ANCHOR_R = 15;
+
+// The pulley hangs from the fixed ceiling anchor on a fixed-length rope, so its position
+// is DERIVED from theta: it swings as the ground anchor moves. This is why there is no
+// PULLEY constant any more.
+function pulleyAt(theta) {
+  const t = theta * DEG;
+  return { x: ANCHOR_D.x + ROPE_BD_LEN * Math.cos(t),
+           y: ANCHOR_D.y + ROPE_BD_LEN * Math.sin(t) };
+}
+
+// C slides along the ground, so its x alone fixes beta, given where the pulley is.
+function anchorC(beta) {
+  const b = pulleyAt(45 + beta / 2);
+  return { x: b.x + (GROUND_Y - b.y) / Math.tan(beta * DEG), y: GROUND_Y };
+}
+
+// x of rope BC at height y -- used by the sweep to prove the rope clears the crate.
+function ropeBcXAt(beta, y) {
+  const b = pulleyAt(45 + beta / 2);
+  const c = anchorC(beta);
+  return b.x + (y - b.y) / (GROUND_Y - b.y) * (c.x - b.x);
+}
+
+// The pulley's position depends on beta and beta depends on the pulley's position, so a
+// drag must SOLVE rather than compute. f(beta) = observedBeta(beta) - beta is strictly
+// decreasing across the range, so bisection finds the unique root.
+function betaFromPointerX(px) {
+  const f = (beta) => {
+    const b = pulleyAt(45 + beta / 2);
+    return Math.atan2(GROUND_Y - b.y, px - b.x) / DEG - beta;
+  };
+  let lo = BETA_MIN, hi = BETA_MAX;
+  if (f(lo) < 0) return lo;
+  if (f(hi) > 0) return hi;
+  for (let i = 0; i < 60; i++) {
+    const m = (lo + hi) / 2;
+    if (f(m) > 0) lo = m; else hi = m;
+  }
+  return (lo + hi) / 2;
+}
+
+// The keyboard steps the ANGLE, never the anchor's x. It rounds before stepping so
+// whole-degree presses stay on a uniform grid after leaving the detent, and skips the
+// rounding under Shift so fine adjustment is possible.
+function keyboardStep(now, delta, shiftKey) {
+  const base = shiftKey ? now : Math.round(now);
+  return base + delta;
+}
+
+// The slope-triangle glyph: the construction the textbook figure uses, drawn only when
+// the rope sits exactly on one of the four Pythagorean-triple detents. Pure and exported
+// so its geometry can be asserted without a DOM; the renderer below just draws it.
+//
+// k scales the triple so the hypotenuse is always 46px. P0 is the top vertex; P1 is
+// straight down from P0 (the "down" leg); P2 is right of P1 (the "across" leg), so the
+// hypotenuse P0->P2 is parallel to the rope by construction (tan beta = down/across).
+// It is placed 0.70 of the way from the pulley to anchor C, offset outward along the
+// rope's normal -- load-bearing: at 0.50/0.60 the glyph collides with the T_BC label at
+// every detent; 0.70 clears it by at least 20px.
+function slopeGlyph(beta) {
+  const t = tripleAt(beta);
+  if (!t) return null;
+  const b = pulleyAt(45 + beta / 2);
+  const c = anchorC(beta);
+  const mid = { x: b.x + 0.70 * (c.x - b.x), y: b.y + 0.70 * (c.y - b.y) };
+  const n = { x: Math.sin(beta * DEG), y: -Math.cos(beta * DEG) };
+  const k = 46 / t.hyp;
+  const p0 = { x: mid.x + n.x * 30 - (t.across * k) / 2, y: mid.y + n.y * 30 - (t.down * k) / 2 };
+  const p1 = { x: p0.x, y: p0.y + t.down * k };
+  const p2 = { x: p1.x + t.across * k, y: p1.y };
+  return { p0, p1, p2, triple: t };
+}
+
+// Pure, so a test can check it against fbdLabels/triangleLabels/terms without
+// a DOM. render() below must build its force labels only from this function,
+// never inline, so the scene can never drift from what the other panels say.
+function sceneLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
+// --- drawing --------------------------------------------------------------
+function createScene(svg, actions) {
+  const drawRoot = el('g', {}, svg);
+  const handleRoot = el('g', {}, svg);
+  let latest = null;
+
+  const cHandle = el('g', {
+    class: 'handle', tabindex: '0', role: 'slider', 'data-scene': 'c'
+  }, handleRoot);
+  el('circle', { class: 'hit', r: 22, fill: 'transparent' }, cHandle);
+  el('circle', { r: 8, fill: '#fff', stroke: COLORS.t2, 'stroke-width': 3 }, cHandle);
+
+  function arc(parent, center, r, a0, a1, color) {
+    const p0 = { x: center.x + r * Math.cos(a0 * DEG), y: center.y - r * Math.sin(a0 * DEG) };
+    const p1 = { x: center.x + r * Math.cos(a1 * DEG), y: center.y - r * Math.sin(a1 * DEG) };
+    const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
+    const sweep = a1 > a0 ? 0 : 1;
+    el('path', {
+      d: `M ${p0.x} ${p0.y} A ${r} ${r} 0 ${large} ${sweep} ${p1.x} ${p1.y}`,
+      fill: 'none', stroke: color, 'stroke-width': 1.5, 'stroke-dasharray': '4 3'
+    }, parent);
+  }
+
+  function render(s) {
+    latest = s;
+    clear(drawRoot);
+    const pulley = pulleyAt(s.theta);
+    const C = anchorC(s.beta);
+    const crateTop = pulley.y + CRATE.drop;
+
+    // ground
+    el('line', { x1: 40, y1: GROUND_Y, x2: SCENE_VB.w - 30, y2: GROUND_Y,
+                 stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
+
+    // the ceiling: a fixed horizontal structure, not a rotating stub. ANCHOR_D sits on
+    // it and never moves; the pulley is what swings now. Hatch ticks above the line
+    // read as solid structure rather than another rope.
+    el('line', { x1: 40, y1: CEIL_Y, x2: 330, y2: CEIL_Y,
+                 stroke: COLORS.ink, 'stroke-width': 5 }, drawRoot);
+    const HATCH_N = 10;
+    for (let i = 0; i <= HATCH_N; i++) {
+      const hx = 40 + (330 - 40) * i / HATCH_N;
+      el('line', { x1: hx, y1: CEIL_Y, x2: hx - 10, y2: CEIL_Y - 12,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+    }
+
+    // ropes
+    el('line', { x1: ANCHOR_D.x, y1: ANCHOR_D.y, x2: pulley.x, y2: pulley.y,
+                 stroke: COLORS.t1, 'stroke-width': 4 }, drawRoot);
+    el('line', { x1: pulley.x, y1: pulley.y, x2: pulley.x, y2: crateTop,
+                 stroke: COLORS.w, 'stroke-width': 4 }, drawRoot);
+    el('line', { x1: pulley.x, y1: pulley.y, x2: C.x, y2: C.y,
+                 stroke: COLORS.t2, 'stroke-width': 4 }, drawRoot);
+
+    // angle arcs, both drawn at the pulley so they move with it, opening in opposite
+    // directions so the bisector relationship between them is visible
+    arc(drawRoot, pulley, 55, 180, 180 - s.theta, COLORS.t1);
+    arc(drawRoot, pulley, 75, 0, -s.beta, COLORS.t2);
+
+    // crate
+    const cx = pulley.x - CRATE.w / 2;
+    el('rect', { x: cx, y: crateTop, width: CRATE.w, height: CRATE.h, rx: 4,
+                 fill: '#d8d2bb', stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
+    el('line', { x1: cx, y1: crateTop, x2: cx + CRATE.w, y2: crateTop + CRATE.h,
+                 stroke: COLORS.ink, 'stroke-width': 1.5 }, drawRoot);
+    el('line', { x1: cx + CRATE.w, y1: crateTop, x2: cx, y2: crateTop + CRATE.h,
+                 stroke: COLORS.ink, 'stroke-width': 1.5 }, drawRoot);
+
+    // the pulley itself, drawn over the ropes
+    el('circle', { cx: pulley.x, cy: pulley.y, r: 15, fill: '#dbe7f3',
+                   stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
+    el('circle', { cx: pulley.x, cy: pulley.y, r: 4, fill: COLORS.ink }, drawRoot);
+
+    // the fixed ceiling anchor at D, drawn as the same small ring used for anchor C
+    el('circle', { cx: ANCHOR_D.x, cy: ANCHOR_D.y, r: 7, fill: '#fff',
+                   stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
+
+    // ground anchor at C, drawn under the handle
+    el('circle', { cx: C.x, cy: C.y, r: 7, fill: '#fff',
+                   stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
+
+    // the slope-triangle glyph -- the textbook construction -- only when the rope is
+    // exactly on one of the four Pythagorean-triple detents
+    const glyph = slopeGlyph(s.beta);
+    if (glyph) {
+      const { p0, p1, p2, triple } = glyph;
+      el('line', { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      el('line', { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      el('line', { x1: p0.x, y1: p0.y, x2: p2.x, y2: p2.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      // "down" just left of P0-P1
+      text(drawRoot, p0.x - 6, (p0.y + p1.y) / 2 + 4, String(triple.down),
+           { size: 12, weight: 600, anchor: 'end' });
+      // "across" just below P1-P2
+      text(drawRoot, (p1.x + p2.x) / 2, p1.y + 16, String(triple.across),
+           { size: 12, weight: 600, anchor: 'middle' });
+      // "hyp" just outside the hypotenuse P0-P2 -- offset perpendicular to it, away
+      // from the right-angle vertex P1 (same technique triangle.js uses for its legs)
+      const hx = p2.x - p0.x, hy = p2.y - p0.y;
+      const hlen = Math.hypot(hx, hy) || 1;
+      let hnx = -hy / hlen, hny = hx / hlen;
+      const hmx = (p0.x + p2.x) / 2, hmy = (p0.y + p2.y) / 2;
+      if (hnx * (hmx - p1.x) + hny * (hmy - p1.y) < 0) { hnx = -hnx; hny = -hny; }
+      text(drawRoot, hmx + hnx * 14, hmy + hny * 14 + 4, String(triple.hyp),
+           { size: 12, weight: 600, anchor: 'middle' });
+    }
+
+    // labels
+    text(drawRoot, ANCHOR_D.x - 10, ANCHOR_D.y + 24, 'D', { weight: 600, anchor: 'end' });
+    text(drawRoot, pulley.x + 22, pulley.y - 12, 'B', { weight: 600 });
+    text(drawRoot, pulley.x - CRATE.w / 2 - 10, crateTop + 22, 'A', { weight: 600, anchor: 'end' });
+    text(drawRoot, C.x + 4, C.y + 26, 'C', { weight: 600 });
+
+    text(drawRoot, pulley.x - 78, pulley.y - 46, `θ = ${s.theta.toFixed(1)}°`,
+         { fill: COLORS.t1, weight: 600, anchor: 'end' });
+    text(drawRoot, pulley.x + 92, pulley.y + 58, `β = ${s.beta.toFixed(1)}°`,
+         { fill: COLORS.t2, weight: 600 });
+
+    const labels = sceneLabels(s);
+    const dm = { x: (ANCHOR_D.x + pulley.x) / 2, y: (ANCHOR_D.y + pulley.y) / 2 };
+    text(drawRoot, dm.x - 14, dm.y, labels.tbd,
+         { fill: COLORS.t1, weight: 600, anchor: 'end' });
+    text(drawRoot, pulley.x - 14, (pulley.y + crateTop) / 2, labels.tab,
+         { fill: COLORS.w, weight: 600, anchor: 'end' });
+    const cm = { x: (pulley.x + C.x) / 2, y: (pulley.y + C.y) / 2 };
+    text(drawRoot, cm.x + 14, cm.y, labels.tbc,
+         { fill: COLORS.t2, weight: 600 });
+    text(drawRoot, pulley.x, crateTop + CRATE.h / 2 + 5, `W = ${Math.round(s.W)} N`,
+         { anchor: 'middle', weight: 600 });
+
+    cHandle.setAttribute('transform', `translate(${C.x} ${C.y})`);
+    cHandle.setAttribute('aria-valuenow', s.beta.toFixed(2));
+    cHandle.setAttribute('aria-valuemin', String(BETA_MIN));
+    cHandle.setAttribute('aria-valuemax', String(BETA_MAX));
+    cHandle.setAttribute('aria-label', 'Ground anchor position');
+    const atLimit = Math.abs(s.beta - BETA_MIN) < 1e-9 || Math.abs(s.beta - BETA_MAX) < 1e-9;
+    cHandle.classList.toggle('handle--limit', atLimit);
+  }
+
+  // Same shape as fbd.js's setActive: this panel has one handle instead of
+  // fbd's three, so it takes a boolean rather than a key to match against.
+  function setActive(on) {
+    cHandle.classList.toggle('handle--active', on);
+  }
+
+  let dragging = false;
+  let dragPointerId = null;
+
+  svg.addEventListener('pointerover', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g && !dragging) setActive(true);
+  });
+  svg.addEventListener('pointerout', () => { if (!dragging) setActive(false); });
+  handleRoot.addEventListener('focusin', e => {
+    const g = e.target.closest('[data-scene]');
+    if (g) setActive(true);
+  });
+  handleRoot.addEventListener('focusout', () => { if (!dragging) setActive(false); });
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;                 // right/middle click must not drag
+    const g = e.target.closest('[data-scene]');
+    if (!g) return;
+    // Only start the drag once capture has actually succeeded. A pointerup
+    // outside the svg only reaches endDrag if capture is held, so latching
+    // `dragging` before this call could leave a drag live but uncaptured.
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      return;                 // capture failed: do not start a drag we cannot end
+    }
+    dragging = true;
+    dragPointerId = e.pointerId;
+    g.focus();
+    setActive(true);
+    e.preventDefault();
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (!dragging || !latest || e.pointerId !== dragPointerId) return;
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    actions.setBeta(betaFromPointerX(p.x));     // pointer path: snaps at the detent
+  });
+
+  function endDrag(e) {
+    if (!dragging || e.pointerId !== dragPointerId) return;
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    dragging = false;
+    dragPointerId = null;
+    const focused = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('[data-scene]') : null;
+    setActive(!!focused);
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  handleRoot.addEventListener('keydown', e => {
+    if (!e.target.closest('[data-scene]')) return;
+    const step = e.shiftKey ? 0.1 : 1;
+    let delta = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') delta = step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
+    else return;
+    e.preventDefault();
+    // Use the exact setter so a whole-degree press never re-snaps into the detent.
+    const now = latest ? latest.beta : 0;
+    actions.setBetaExact(keyboardStep(now, delta, e.shiftKey));
+  });
+
+  return { render };
+}
+
+// ===== fbd.js =====
+
+
+
+const FBD_VB = { w: 720, h: 620 };
+const FBD_ORIGIN = { x: 365, y: 368 };
+
+// A FIXED scale, with no clipping machinery. T_BD <= 2W always, but that bound
+// needs beta -> 90 deg, outside [BETA_MIN, BETA_MAX]. The longest reachable
+// arrow, at W = WEIGHT_MAX and beta = BETA_MAX, is about 237.9px and always
+// fits. The ball-on-ramp app needed clipping only because its tensions ran to
+// infinity.
+const FBD_SCALE = 0.20;
+
+// Unit vector of each force in SVG coordinates (y down).
+function fbdDir(s, which) {
+  if (which === 'ab') return { x: 0, y: 1 };                                        // straight down
+  if (which === 'bc') return { x: Math.cos(s.beta * DEG), y: Math.sin(s.beta * DEG) };   // down-right
+  return { x: -Math.cos(s.theta * DEG), y: -Math.sin(s.theta * DEG) };             // up-left
+}
+
+function fbdMag(s, which) {
+  if (which === 'ab') return s.TAB;
+  if (which === 'bc') return s.TBC;
+  return s.TBD;
+}
+
+function arrowTip(s, which) {
+  const d = fbdDir(s, which);
+  const len = fbdMag(s, which) * FBD_SCALE;
+  return { x: FBD_ORIGIN.x + d.x * len, y: FBD_ORIGIN.y + d.y * len };
+}
+
+// Pure, so a test can check it against sceneLabels/triangleLabels/terms without
+// a DOM. render() below must build its force labels only from this function,
+// never inline, so the FBD can never drift from what the other panels say.
+function fbdLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
+// Project the pointer onto the arrow's own direction and read off the length.
+// Projecting -- rather than taking the raw distance from the origin -- is what
+// keeps a sideways wobble from changing the magnitude.
+function magnitudeFromPointer(p, which, s) {
+  const d = fbdDir(s, which);
+  const px = p.x - FBD_ORIGIN.x, py = p.y - FBD_ORIGIN.y;
+  const along = px * d.x + py * d.y;
+  return Math.max(along, 0) / FBD_SCALE;
+}
+
+function createFbd(svg, actions) {
+  const drawRoot = el('g', {}, svg);
+  const handleRoot = el('g', {}, svg);
+  let latest = null;
+
+  const defs = el('defs', {}, svg);
+  for (const [key, color] of [['ab', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
+    const m = el('marker', {
+      id: `head-${key}`, viewBox: '0 0 10 10', refX: 8, refY: 5,
+      markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse'
+    }, defs);
+    el('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: color }, m);
+  }
+
+  const handles = {};
+  for (const [key, color] of [['ab', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
+    const g = el('g', {
+      class: 'handle', tabindex: '0', role: 'slider', 'data-fbd': key
+    }, handleRoot);
+    el('circle', { class: 'hit', r: 20, fill: 'transparent' }, g);
+    el('circle', { r: 7, fill: '#fff', stroke: color, 'stroke-width': 3 }, g);
+    handles[key] = g;
+  }
+
+  function render(s) {
+    latest = s;
+    clear(drawRoot);
+
+    el('line', { x1: 40, y1: FBD_ORIGIN.y, x2: FBD_VB.w - 40, y2: FBD_ORIGIN.y,
+                 stroke: '#e5e7eb', 'stroke-width': 1 }, drawRoot);
+    el('line', { x1: FBD_ORIGIN.x, y1: 40, x2: FBD_ORIGIN.x, y2: FBD_VB.h - 40,
+                 stroke: '#e5e7eb', 'stroke-width': 1 }, drawRoot);
+
+    const labels = fbdLabels(s);
+    const spec = [
+      ['bd', COLORS.t1, labels.tbd],
+      ['bc', COLORS.t2, labels.tbc],
+      ['ab', COLORS.w,  labels.tab]
+    ];
+    const atLimit = Math.abs(s.W - WEIGHT_MIN) < 1e-9 || Math.abs(s.W - WEIGHT_MAX) < 1e-9;
+    for (const [key, color, label] of spec) {
+      const t = arrowTip(s, key);
+      el('line', {
+        x1: FBD_ORIGIN.x, y1: FBD_ORIGIN.y, x2: t.x, y2: t.y,
+        stroke: color, 'stroke-width': 4, 'marker-end': `url(#head-${key})`
+      }, drawRoot);
+      const off = key === 'ab' ? { x: -14, y: 0 } : key === 'bc' ? { x: 16, y: 6 } : { x: -16, y: -4 };
+      text(drawRoot, t.x + off.x, t.y + off.y, label,
+           { fill: color, weight: 600, anchor: key === 'bc' ? 'start' : 'end' });
+
+      handles[key].setAttribute('transform', `translate(${t.x} ${t.y})`);
+      handles[key].setAttribute('aria-valuenow', Math.round(s.W));
+      handles[key].setAttribute('aria-valuemin', String(WEIGHT_MIN));
+      handles[key].setAttribute('aria-valuemax', String(WEIGHT_MAX));
+      handles[key].setAttribute('aria-label', `${label} arrowhead; drag to change the crate weight`);
+      handles[key].classList.toggle('handle--limit', atLimit);
+    }
+
+    el('circle', { cx: FBD_ORIGIN.x, cy: FBD_ORIGIN.y, r: 6, fill: COLORS.ink }, drawRoot);
+    text(drawRoot, FBD_ORIGIN.x + 12, FBD_ORIGIN.y - 12, 'B', { weight: 600 });
+  }
+
+  let dragging = null;
+  let dragPointerId = null;
+  let grabOffset = null;      // true tip minus pointer, recorded at grab time
+
+  function setActive(key) {
+    for (const k in handles) handles[k].classList.toggle('handle--active', k === key);
+  }
+
+  svg.addEventListener('pointerover', e => {
+    const g = e.target.closest('[data-fbd]');
+    if (g && !dragging) setActive(g.getAttribute('data-fbd'));
+  });
+  svg.addEventListener('pointerout', () => { if (!dragging) setActive(null); });
+  handleRoot.addEventListener('focusin', e => {
+    const g = e.target.closest('[data-fbd]');
+    if (g) setActive(g.getAttribute('data-fbd'));
+  });
+  handleRoot.addEventListener('focusout', () => { if (!dragging) setActive(null); });
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const g = e.target.closest('[data-fbd]');
+    if (!g || !latest) return;
+    // Only start the drag once capture has actually succeeded. A pointerup
+    // outside the svg only reaches endDrag if capture is held, so latching
+    // `dragging` before this call could leave a drag live but uncaptured.
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      return;                 // capture failed: do not start a drag we cannot end
+    }
+    dragging = g.getAttribute('data-fbd');
+    dragPointerId = e.pointerId;
+    g.focus();
+    setActive(dragging);
+    // Grab the arrow where the user actually took hold of it, so it does not
+    // jump to the cursor on the first pointermove.
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    const tip = arrowTip(latest, dragging);
+    grabOffset = { x: tip.x - p.x, y: tip.y - p.y };
+    e.preventDefault();
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (!dragging || e.pointerId !== dragPointerId || !latest) return;
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    const anchored = { x: p.x + grabOffset.x, y: p.y + grabOffset.y };
+    const mag = magnitudeFromPointer(anchored, dragging, latest);
+    actions.setWeight(weightFromMagnitude(mag, dragging, latest.beta));
+  });
+
+  function endDrag(e) {
+    if (!dragging || e.pointerId !== dragPointerId) return;
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    dragging = null;
+    dragPointerId = null;
+    grabOffset = null;
+    const focused = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('[data-fbd]') : null;
+    setActive(focused ? focused.getAttribute('data-fbd') : null);
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  handleRoot.addEventListener('keydown', e => {
+    if (!e.target.closest('[data-fbd]') || !latest) return;
+    const step = e.shiftKey ? 1 : 10;
+    let delta = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') delta = step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
+    else return;
+    e.preventDefault();
+    // Round the base before stepping, the same contract scene.js's keyboardStep
+    // uses -- otherwise a drag to a fractional W (e.g. 437.62) leaves ArrowUp
+    // stepping off that fraction forever, and aria-valuenow (which rounds)
+    // announces a number the stored state never actually reaches. Shift stays
+    // unrounded, as the scene does, so fine adjustment still works.
+    const base = e.shiftKey ? latest.W : Math.round(latest.W);
+    actions.setWeight(base + delta);
+  });
+
+  return { render };
+}
+
+// ===== triangle.js =====
+
+
+
+const TRI_VB = { w: 480, h: 380 };
+const TRI_PAD = 0.12;
+
+// Tip-to-tail in MATHS coordinates (y up), starting at the origin:
+// the crate's pull straight down, then the pull toward C, then T_BD closes it.
+function trianglePoints(s) {
+  const a = { x: 0, y: 0 };
+  const b = { x: a.x, y: a.y - s.TAB };
+  const c = { x: b.x + s.TBC * Math.cos(s.beta * DEG),
+              y: b.y - s.TBC * Math.sin(s.beta * DEG) };
+  return [a, b, c];
+}
+
+// Auto-fit, because this panel's job is the SHAPE of the closure, not the size.
+// The scene and the free-body diagram both carry the magnitudes.
+// Pure, so a test can check it against sceneLabels/fbdLabels/terms without a
+// DOM. render() below must build its force labels only from this function,
+// never inline, so the triangle can never drift from what the other panels say.
+function triangleLabels(s) {
+  return {
+    tab: `T_AB = ${Math.round(s.TAB)} N`,
+    tbc: `T_BC = ${Math.round(s.TBC)} N`,
+    tbd: `T_BD = ${Math.round(s.TBD)} N`
+  };
+}
+
+function fitTriangle(pts, vb) {
+  const xs = pts.map(p => p.x), ys = pts.map(p => p.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const w = Math.max(maxX - minX, 1e-9), h = Math.max(maxY - minY, 1e-9);
+  const scale = Math.min(vb.w * (1 - 2 * TRI_PAD) / w, vb.h * (1 - 2 * TRI_PAD) / h);
+  return {
+    scale,
+    offset: {
+      x: vb.w / 2 - (minX + maxX) / 2 * scale,
+      y: vb.h / 2 + (minY + maxY) / 2 * scale
+    }
+  };
+}
+
+function createTriangle(svg) {
+  const root = el('g', {}, svg);
+
+  function render(s) {
+    clear(root);
+    const pts = trianglePoints(s);
+    const { scale, offset } = fitTriangle(pts, TRI_VB);
+    const px = q => ({ x: offset.x + q.x * scale, y: offset.y - q.y * scale });
+    const [a, b, c] = pts.map(px);
+
+    const labels = triangleLabels(s);
+    const legs = [
+      [a, b, COLORS.w,  labels.tab],
+      [b, c, COLORS.t2, labels.tbc],
+      [c, a, COLORS.t1, labels.tbd]
+    ];
+    for (const [from, to, color, label] of legs) {
+      el('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y,
+                   stroke: color, 'stroke-width': 4 }, root);
+      const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
+      // Perpendicular to THIS leg, not the direction from the centroid: for a thin
+      // triangle the centroid-to-midpoint direction runs nearly along the leg, which
+      // is what put these labels on top of the lines.
+      const cxx = (a.x + b.x + c.x) / 3, cyy = (a.y + b.y + c.y) / 3;
+      const lx = to.x - from.x, ly = to.y - from.y;
+      const ln = Math.hypot(lx, ly) || 1;
+      let nx = -ly / ln, ny = lx / ln;
+      if (nx * (mx - cxx) + ny * (my - cyy) < 0) { nx = -nx; ny = -ny; }
+      text(root, mx + 24 * nx, my + 24 * ny + 5, label,
+           { fill: color, weight: 600, anchor: nx < 0 ? 'end' : 'start' });
+    }
+
+    // "N per viewBox unit", not "N per pixel": the SVG is always CSS-scaled to
+    // fit its panel, so a student measuring with a ruler on screen would get a
+    // different number from either unit -- viewBox units are what this scale
+    // actually relates the drawing to.
+    text(root, 12, TRI_VB.h - 12,
+         `scale: ${(1 / scale).toFixed(1)} N per viewBox unit — shape only, the size is fitted`,
+         { size: 11, fill: '#9aa1ab' });
+  }
+
+  return { render };
+}
+
+// ===== equations.js =====
+
+
+
+// Every term is computed from the UNROUNDED state and rounded only here, at the
+// moment of display. Rounding the forces first makes the two horizontal terms
+// disagree in the last digit, right beside a printed "= 0".
+function terms(s) {
+  return {
+    tab: s.TAB.toFixed(1),
+    tbc: s.TBC.toFixed(1),
+    tbd: s.TBD.toFixed(1),
+    beta: s.beta.toFixed(1),
+    theta: s.theta.toFixed(1),
+    // The two equation lines print these -- at 1 dp, cos/sin of the rounded
+    // angle disagrees with the prose's unrounded-then-rounded fxLeft/fxRight
+    // by up to ~1 N. 2 dp keeps the printed arithmetic close enough (worst
+    // case ~0.02 N) that multiplying the numbers on screen actually closes.
+    beta2: s.beta.toFixed(2),
+    theta2: s.theta.toFixed(2),
+    fxLeft:  (s.TBC * Math.cos(s.beta * DEG)).toFixed(1),
+    fxRight: (s.TBD * Math.cos(s.theta * DEG)).toFixed(1),
+    fyUp:    (s.TBD * Math.sin(s.theta * DEG)).toFixed(1),
+    // The far segment's vertical pull, computed from the unrounded state --
+    // NOT derived by subtracting two already-rounded display strings, which
+    // is arithmetic on rounded values and can be off by up to 0.1 N.
+    fyFar:   (s.TBC * Math.sin(s.beta * DEG)).toFixed(1),
+    fyDown:  (s.TAB + s.TBC * Math.sin(s.beta * DEG)).toFixed(1)
+  };
+}
+
+function createEquations(node) {
+  function render(s) {
+    const t = terms(s);
+    const o = COLORS.t1, b = COLORS.t2, g = COLORS.w;
+    // Every value is a number formatted by toFixed, so there is nothing to escape.
+    node.innerHTML =
+      `<div>&Sigma;F<sub>x</sub>: <span style="color:${b}">${t.tbc}&middot;cos&nbsp;${t.beta2}&deg;</span>` +
+      ` &minus; <span style="color:${o}">${t.tbd}&middot;cos&nbsp;${t.theta2}&deg;</span> = 0</div>` +
+      `<div>&Sigma;F<sub>y</sub>: <span style="color:${o}">${t.tbd}&middot;sin&nbsp;${t.theta2}&deg;</span>` +
+      ` &minus; <span style="color:${g}">${t.tab}</span>` +
+      ` &minus; <span style="color:${b}">${t.tbc}&middot;sin&nbsp;${t.beta2}&deg;</span> = 0</div>` +
+      `<div style="font-size:12px;color:#9aa1ab;font-family:system-ui;line-height:1.5;margin-top:6px">` +
+      `Both horizontal terms equal ${t.fxLeft} N. The upward pull of ${t.fyUp} N carries the ` +
+      `crate&rsquo;s ${t.tab} N plus the ${t.fyFar} N the far ` +
+      `segment adds. Both sums are exactly zero for the underlying numbers &mdash; that is what fixes ` +
+      `T_BD and &theta;. The angles above are rounded for display, so multiplying the printed ` +
+      `numbers only closes to within about a tenth of a newton.</div>`;
+  }
+  return { render };
+}
+
+// ===== messages.js =====
+
+
+// Pure, so it can be tested without a DOM. Every number is rounded here, at the
+// moment of display, from the live unrounded state -- never hard-coded.
+
+function detentMessage(s, triple) {
+  const tbd = Math.round(s.TBD);
+  const textbookNote = triple.across === 5 && triple.down === 12 ?
+    ` This is the classic textbook case.` : '';
+  const ratio = (s.TBD / s.W).toFixed(2);
+  return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
+         `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
+         `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
+         `T_BD = ${ratio} W = ${tbd} N.`;
+}
+
+function pickMessage(s, prev) {
+  const w = Math.round(s.W);
+  const tbd = Math.round(s.TBD);
+  const changedW = prev && Math.abs(s.W - prev.W) > 1e-9;
+  const changedB = prev && Math.abs(s.beta - prev.beta) > 1e-9;
+  // Exact, not a tolerance: only setBeta's pointer snap (and the opening state)
+  // land here, and only there does one of the Pythagorean triple ratios actually hold.
+  const triple = tripleAt(s.beta);
+  const atMax = s.beta >= BETA_MAX - 1e-9;
+  const atMin = s.beta <= BETA_MIN + 1e-9;
+
+  if (changedW) {
+    return `W went from ${Math.round(prev.W)} N to ${w} N and θ did not move. ` +
+           `It never does — θ = 45° + β/2 depends only on where C sits. ` +
+           `T_BD scaled with the load, to ${tbd} N.`;
+  }
+
+  if (changedB) {
+    if (triple) {
+      return detentMessage(s, triple);
+    }
+    const db = Math.abs(s.beta - prev.beta);
+    const half = `β moved ${db.toFixed(1)}°, θ moved ${(db / 2).toFixed(1)}°. ` +
+                 `θ always moves half as far, because the support rope tracks the ` +
+                 `bisector of the two rope segments. Now θ = ${s.theta.toFixed(1)}°, ` +
+                 `T_BD = ${tbd} N.`;
+    if (atMax) {
+      return half + ` The anchor is as steep as it goes: both segments now pull almost ` +
+             `straight down and their resultant approaches 2W, already at ${(s.TBD / s.W).toFixed(2)} W.`;
+    }
+    if (atMin) {
+      return half + ` The anchor is as far out as it goes: the two pulls have opened up, ` +
+             `with their resultant down to ${(s.TBD / s.W).toFixed(2)} W, and a horizontal BC ` +
+             `would approach √2·W.`;
+    }
+    return half;
+  }
+
+  // No change: the first render of the session. The app always opens at
+  // a detent (see state.js's createState), so triple is always non-null here and
+  // this branch is the only one of this function's "first render" branches that is
+  // ever actually reached.
+  if (triple) {
+    return detentMessage(s, triple);
+  }
+
+  // Unreachable in the running app: prev === null only happens on the startup
+  // render, and startup always lands on the detent, which the branch above
+  // always catches first. This is kept as the correct default first-render
+  // message for a state other than the detent, in case the opening state ever
+  // changes -- and pickMessage is still exercised directly at prev = null with
+  // other betas, as a pure function, in messages.test.js.
+  return `A frictionless pulley redirects the rope without changing its tension, so both ` +
+         `segments carry ${w} N. Two equal pulls add along the bisector of the angle ` +
+         `between them, which is why θ = ${s.theta.toFixed(1)}° and ` +
+         `T_BD = ${tbd} N.`;
+}
+
+function createMessages(node) {
+  let prev = null;
+  function render(s) {
+    node.textContent = pickMessage(s, prev);
+    prev = s;
+  }
+  return { render };
+}
+
+// ===== app.js =====
+
+
+
+
+
+
+
+const state = createState();
+
+const els = {
+  scene: document.getElementById('scene-svg'),
+  fbd: document.getElementById('fbd-svg'),
+  triangle: document.getElementById('triangle-svg'),
+  equations: document.getElementById('equations'),
+  messages: document.getElementById('messages'),
+  wRange: document.getElementById('w-range'),
+  wNumber: document.getElementById('w-number')
+};
+
+const panels = [];
+panels.push(createScene(els.scene, {
+  setBeta: deg => state.setBeta(deg),
+  setBetaExact: deg => state.setBetaExact(deg)
+}));
+panels.push(createFbd(els.fbd, {
+  setWeight: n => state.setWeight(n)
+}));
+panels.push(createTriangle(els.triangle));
+panels.push(createEquations(els.equations));
+panels.push(createMessages(els.messages));
+
+function renderAll(s) {
+  for (const p of panels) p.render(s);
+  els.wRange.value = s.W.toFixed(0);
+  // Do not fight the user while they are typing an exact weight into the box.
+  if (document.activeElement !== els.wNumber) els.wNumber.value = s.W.toFixed(0);
+}
+
+els.wRange.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+els.wNumber.addEventListener('input', e => state.setWeight(Number(e.target.value)));
+// renderAll skips writing wNumber while it has focus, so it can show a value
+// (e.g. a typed 5000, or a fractional W from an FBD drag) that no longer
+// matches the clamped/rounded state. Rewrite it once the box loses focus so
+// it can never keep showing a stale number indefinitely.
+els.wNumber.addEventListener('change', () => { els.wNumber.value = state.getState().W.toFixed(0); });
+
+state.subscribe(renderAll);
+renderAll(state.getState());
+
+
+})();
+</script>
+</body>
+</html>
