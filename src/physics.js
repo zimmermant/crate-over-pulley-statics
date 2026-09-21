@@ -10,13 +10,34 @@
 
 export const DEG = Math.PI / 180;
 
-export const BETA_MIN = 40;
-export const BETA_MAX = 75;
+export const BETA_MIN = 44;
+export const BETA_MAX = 77;
 export const WEIGHT_MIN = 100;
 export const WEIGHT_MAX = 600;
 
+// The Pythagorean triples the rope can snap to. Each is oriented with the SHORT leg
+// across and the LONG leg down, which is how the classic figure reads: "5 across for
+// every 12 down, 13 along the rope". Named ascending, across-down-hyp.
+export const TRIPLES = [
+  { across: 3, down: 4,  hyp: 5 },
+  { across: 8, down: 15, hyp: 17 },
+  { across: 5, down: 12, hyp: 13 },
+  { across: 7, down: 24, hyp: 25 }
+];
+
+export function tripleBeta(t) { return Math.atan2(t.down, t.across) / DEG; }
+
+export function tripleAt(beta) {
+  for (const t of TRIPLES) {
+    if (Math.abs(beta - tripleBeta(t)) < 1e-9) {
+      return t;
+    }
+  }
+  return null;
+}
+
 // The figure's 5-12-13 slope: 5 across for every 12 down.
-export const BETA_SPECIAL = Math.atan2(12, 5) / DEG;
+export const BETA_SPECIAL = tripleBeta(TRIPLES[2]);
 export const SNAP_TOL = 1.5;
 
 // Coerces its own parameter because it does arithmetic -- a non-numeric or
@@ -36,7 +57,20 @@ export function clampWeight(n) { return clampTo(n, WEIGHT_MIN, WEIGHT_MAX); }
 // would fall back into the well on every press and never climb out.
 export function snapBeta(deg) {
   const v = clampBeta(deg);
-  return Math.abs(v - BETA_SPECIAL) <= SNAP_TOL ? BETA_SPECIAL : v;
+  let closest = null;
+  let closestDist = SNAP_TOL + 1;
+  for (const t of TRIPLES) {
+    const tBeta = tripleBeta(t);
+    const dist = Math.abs(v - tBeta);
+    if (dist < closestDist) {
+      closestDist = dist;
+      closest = t;
+    }
+  }
+  if (closestDist <= SNAP_TOL && closest !== null) {
+    return tripleBeta(closest);
+  }
+  return v;
 }
 
 // Both rope segments carry W, and the resultant of two equal pulls lies along
