@@ -33,6 +33,14 @@ export function betaFromPointerX(px) {
   return Math.atan2(DROP, run) / DEG;
 }
 
+// The keyboard steps the ANGLE, never the anchor's x. It rounds before stepping so
+// whole-degree presses stay on a uniform grid after leaving the detent, and skips the
+// rounding under Shift so fine adjustment is possible.
+export function keyboardStep(now, delta, shiftKey) {
+  const base = shiftKey ? now : Math.round(now);
+  return base + delta;
+}
+
 // x of rope BC at height y, used by the sweep to prove the rope clears the crate.
 export function ropeBcXAt(beta, y) {
   return PULLEY.x + (y - PULLEY.y) / DROP * (anchorC(beta).x - PULLEY.x);
@@ -143,12 +151,17 @@ export function createScene(svg, actions) {
     if (e.button !== 0) return;                 // right/middle click must not drag
     const g = e.target.closest('[data-scene]');
     if (!g) return;
+    // Only start the drag once capture has actually succeeded. A pointerup
+    // outside the svg only reaches endDrag if capture is held, so latching
+    // `dragging` before this call could leave a drag live but uncaptured.
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      return;                 // capture failed: do not start a drag we cannot end
+    }
     dragging = true;
     dragPointerId = e.pointerId;
     g.focus();
-    // A throw here would leave the drag live but uncaptured, so a pointerup
-    // outside the svg would never end it.
-    try { svg.setPointerCapture(e.pointerId); } catch {}
     e.preventDefault();
   });
 
@@ -175,11 +188,9 @@ export function createScene(svg, actions) {
     else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
     else return;
     e.preventDefault();
-    // Round BEFORE stepping so whole-degree presses stay on a uniform grid after
-    // leaving the detent, and use the exact setter so they never re-snap into it.
+    // Use the exact setter so a whole-degree press never re-snaps into the detent.
     const now = latest ? latest.beta : 0;
-    const base = e.shiftKey ? now : Math.round(now);
-    actions.setBetaExact(base + delta);
+    actions.setBetaExact(keyboardStep(now, delta, e.shiftKey));
   });
 
   return { render };

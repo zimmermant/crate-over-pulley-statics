@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BETA_MIN, BETA_MAX, solve } from '../src/physics.js';
+import { BETA_MIN, BETA_MAX, BETA_SPECIAL, solve } from '../src/physics.js';
 import {
   SCENE_VB, PULLEY, GROUND_Y, CRATE, ANCHOR_R,
-  anchorC, anchorD, betaFromPointerX, ropeBcXAt
+  anchorC, anchorD, betaFromPointerX, ropeBcXAt, keyboardStep
 } from '../src/scene.js';
 
 test('every reachable beta keeps the drawing inside the panel and clear of the crate', () => {
@@ -44,14 +44,21 @@ test('dragging C to the right lowers beta and dragging it left raises beta', () 
   assert.ok(betaFromPointerX(mid - 60) > 60);
 });
 
-import { BETA_SPECIAL } from '../src/physics.js';
-
 test('the keyboard contract rounds to a whole degree before stepping', () => {
   // scene.js must round the CURRENT value before applying the step, or arrow
   // keys leaving the detent would walk on a 67.38/68.38/69.38 grid forever.
-  const stepFrom = (v, delta) => Math.round(v) + delta;
-  assert.strictEqual(stepFrom(BETA_SPECIAL, 1), 68);
-  assert.strictEqual(stepFrom(BETA_SPECIAL, -1), 66);
-  assert.strictEqual(stepFrom(68, 1), 69);
-  assert.strictEqual(stepFrom(52.4, -1), 51);
+  assert.strictEqual(keyboardStep(BETA_SPECIAL, 1, false), 68);
+  assert.strictEqual(keyboardStep(BETA_SPECIAL, -1, false), 66);
+  assert.strictEqual(keyboardStep(68, 1, false), 69);
+  assert.strictEqual(keyboardStep(52.4, -1, false), 51);
+  // 60.6 rounds up to 61 (Math.round), but floors down to 60 (Math.floor) --
+  // this fixture is the one that actually distinguishes the two, unlike the
+  // four above it, whose fractional parts all sit below .5.
+  assert.strictEqual(keyboardStep(60.6, 1, false), 62);
+});
+
+test('the keyboard contract does not round under Shift, so fine adjustment survives', () => {
+  // If Shift rounded too, the exact-value path arrow keys need for a 0.1 degree
+  // step would be lost the moment the value left a whole degree.
+  assert.strictEqual(keyboardStep(BETA_SPECIAL, 0.1, true), BETA_SPECIAL + 0.1);
 });
