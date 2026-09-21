@@ -1,35 +1,56 @@
-import { DEG, BETA_MIN, BETA_MAX, BETA_SPECIAL } from './physics.js';
+import { DEG, BETA_MIN, BETA_MAX, tripleAt } from './physics.js';
 import { el, clear, text, COLORS, clientToSvg } from './svg.js';
 
 // --- geometry -------------------------------------------------------------
 // Every constant below was fixed by the sweep in test/scene.test.js, which
 // walks the whole beta range checking crate clearance and viewBox containment.
 // Change one and re-run that test before believing the result.
-export const SCENE_VB = { w: 720, h: 620 };
-export const PULLEY = { x: 185, y: 195 };
-export const GROUND_Y = 560;
-export const DROP = GROUND_Y - PULLEY.y;
-export const CRATE = { w: 96, h: 80, top: 430 };
-export const ROPE_BD_LEN = 155;
+export const SCENE_VB = { w: 720, h: 680 };
+export const CEIL_Y = 44;
+export const ANCHOR_D = { x: 140, y: CEIL_Y };
+export const ROPE_BD_LEN = 230;
+export const GROUND_Y = 635;
+export const CRATE = { w: 88, h: 78, drop: 250 };
 export const ANCHOR_R = 15;
 
-// C slides along the ground, so its x alone fixes beta.
+// The pulley hangs from the fixed ceiling anchor on a fixed-length rope, so its position
+// is DERIVED from theta: it swings as the ground anchor moves. This is why there is no
+// PULLEY constant any more.
+export function pulleyAt(theta) {
+  const t = theta * DEG;
+  return { x: ANCHOR_D.x + ROPE_BD_LEN * Math.cos(t),
+           y: ANCHOR_D.y + ROPE_BD_LEN * Math.sin(t) };
+}
+
+// C slides along the ground, so its x alone fixes beta, given where the pulley is.
 export function anchorC(beta) {
-  return { x: PULLEY.x + DROP / Math.tan(beta * DEG), y: GROUND_Y };
+  const b = pulleyAt(45 + beta / 2);
+  return { x: b.x + (GROUND_Y - b.y) / Math.tan(beta * DEG), y: GROUND_Y };
 }
 
-// D rides around on a fixed-length rope so the pulley -- the free body -- can
-// stay put while theta changes. Its wall stub rotates to match.
-export function anchorD(theta) {
-  return {
-    x: PULLEY.x - ROPE_BD_LEN * Math.cos(theta * DEG),
-    y: PULLEY.y - ROPE_BD_LEN * Math.sin(theta * DEG)
-  };
+// x of rope BC at height y -- used by the sweep to prove the rope clears the crate.
+export function ropeBcXAt(beta, y) {
+  const b = pulleyAt(45 + beta / 2);
+  const c = anchorC(beta);
+  return b.x + (y - b.y) / (GROUND_Y - b.y) * (c.x - b.x);
 }
 
+// The pulley's position depends on beta and beta depends on the pulley's position, so a
+// drag must SOLVE rather than compute. f(beta) = observedBeta(beta) - beta is strictly
+// decreasing across the range, so bisection finds the unique root.
 export function betaFromPointerX(px) {
-  const run = Math.max(px - PULLEY.x, 1e-9);
-  return Math.atan2(DROP, run) / DEG;
+  const f = (beta) => {
+    const b = pulleyAt(45 + beta / 2);
+    return Math.atan2(GROUND_Y - b.y, px - b.x) / DEG - beta;
+  };
+  let lo = BETA_MIN, hi = BETA_MAX;
+  if (f(lo) < 0) return lo;
+  if (f(hi) > 0) return hi;
+  for (let i = 0; i < 60; i++) {
+    const m = (lo + hi) / 2;
+    if (f(m) > 0) lo = m; else hi = m;
+  }
+  return (lo + hi) / 2;
 }
 
 // The keyboard steps the ANGLE, never the anchor's x. It rounds before stepping so
@@ -40,9 +61,28 @@ export function keyboardStep(now, delta, shiftKey) {
   return base + delta;
 }
 
-// x of rope BC at height y, used by the sweep to prove the rope clears the crate.
-export function ropeBcXAt(beta, y) {
-  return PULLEY.x + (y - PULLEY.y) / DROP * (anchorC(beta).x - PULLEY.x);
+// The slope-triangle glyph: the construction the textbook figure uses, drawn only when
+// the rope sits exactly on one of the four Pythagorean-triple detents. Pure and exported
+// so its geometry can be asserted without a DOM; the renderer below just draws it.
+//
+// k scales the triple so the hypotenuse is always 46px. P0 is the top vertex; P1 is
+// straight down from P0 (the "down" leg); P2 is right of P1 (the "across" leg), so the
+// hypotenuse P0->P2 is parallel to the rope by construction (tan beta = down/across).
+// It is placed 0.70 of the way from the pulley to anchor C, offset outward along the
+// rope's normal -- load-bearing: at 0.50/0.60 the glyph collides with the T_BC label at
+// every detent; 0.70 clears it by at least 20px.
+export function slopeGlyph(beta) {
+  const t = tripleAt(beta);
+  if (!t) return null;
+  const b = pulleyAt(45 + beta / 2);
+  const c = anchorC(beta);
+  const mid = { x: b.x + 0.70 * (c.x - b.x), y: b.y + 0.70 * (c.y - b.y) };
+  const n = { x: Math.sin(beta * DEG), y: -Math.cos(beta * DEG) };
+  const k = 46 / t.hyp;
+  const p0 = { x: mid.x + n.x * 30 - (t.across * k) / 2, y: mid.y + n.y * 30 - (t.down * k) / 2 };
+  const p1 = { x: p0.x, y: p0.y + t.down * k };
+  const p2 = { x: p1.x + t.across * k, y: p1.y };
+  return { p0, p1, p2, triple: t };
 }
 
 // Pure, so a test can check it against fbdLabels/triangleLabels/terms without
@@ -68,9 +108,9 @@ export function createScene(svg, actions) {
   el('circle', { class: 'hit', r: 22, fill: 'transparent' }, cHandle);
   el('circle', { r: 8, fill: '#fff', stroke: COLORS.t2, 'stroke-width': 3 }, cHandle);
 
-  function arc(parent, r, a0, a1, color) {
-    const p0 = { x: PULLEY.x + r * Math.cos(a0 * DEG), y: PULLEY.y - r * Math.sin(a0 * DEG) };
-    const p1 = { x: PULLEY.x + r * Math.cos(a1 * DEG), y: PULLEY.y - r * Math.sin(a1 * DEG) };
+  function arc(parent, center, r, a0, a1, color) {
+    const p0 = { x: center.x + r * Math.cos(a0 * DEG), y: center.y - r * Math.sin(a0 * DEG) };
+    const p1 = { x: center.x + r * Math.cos(a1 * DEG), y: center.y - r * Math.sin(a1 * DEG) };
     const large = Math.abs(a1 - a0) > 180 ? 1 : 0;
     const sweep = a1 > a0 ? 0 : 1;
     el('path', {
@@ -82,73 +122,110 @@ export function createScene(svg, actions) {
   function render(s) {
     latest = s;
     clear(drawRoot);
+    const pulley = pulleyAt(s.theta);
     const C = anchorC(s.beta);
-    const D = anchorD(s.theta);
+    const crateTop = pulley.y + CRATE.drop;
 
     // ground
     el('line', { x1: 40, y1: GROUND_Y, x2: SCENE_VB.w - 30, y2: GROUND_Y,
                  stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
 
-    // the support rope's wall stub, perpendicular to the rope
-    const nx = Math.sin(s.theta * DEG), ny = Math.cos(s.theta * DEG);
-    el('line', { x1: D.x - 26 * nx, y1: D.y - 26 * ny, x2: D.x + 26 * nx, y2: D.y + 26 * ny,
+    // the ceiling: a fixed horizontal structure, not a rotating stub. ANCHOR_D sits on
+    // it and never moves; the pulley is what swings now. Hatch ticks above the line
+    // read as solid structure rather than another rope.
+    el('line', { x1: 40, y1: CEIL_Y, x2: 330, y2: CEIL_Y,
                  stroke: COLORS.ink, 'stroke-width': 5 }, drawRoot);
+    const HATCH_N = 10;
+    for (let i = 0; i <= HATCH_N; i++) {
+      const hx = 40 + (330 - 40) * i / HATCH_N;
+      el('line', { x1: hx, y1: CEIL_Y, x2: hx - 10, y2: CEIL_Y - 12,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+    }
 
     // ropes
-    el('line', { x1: D.x, y1: D.y, x2: PULLEY.x, y2: PULLEY.y,
+    el('line', { x1: ANCHOR_D.x, y1: ANCHOR_D.y, x2: pulley.x, y2: pulley.y,
                  stroke: COLORS.t1, 'stroke-width': 4 }, drawRoot);
-    el('line', { x1: PULLEY.x, y1: PULLEY.y, x2: PULLEY.x, y2: CRATE.top,
+    el('line', { x1: pulley.x, y1: pulley.y, x2: pulley.x, y2: crateTop,
                  stroke: COLORS.w, 'stroke-width': 4 }, drawRoot);
-    el('line', { x1: PULLEY.x, y1: PULLEY.y, x2: C.x, y2: C.y,
+    el('line', { x1: pulley.x, y1: pulley.y, x2: C.x, y2: C.y,
                  stroke: COLORS.t2, 'stroke-width': 4 }, drawRoot);
 
-    // angle arcs, both at the free body, opening in opposite directions so the
-    // bisector relationship between them is visible
-    arc(drawRoot, 55, 180, 180 - s.theta, COLORS.t1);
-    arc(drawRoot, 75, 0, -s.beta, COLORS.t2);
+    // angle arcs, both drawn at the pulley so they move with it, opening in opposite
+    // directions so the bisector relationship between them is visible
+    arc(drawRoot, pulley, 55, 180, 180 - s.theta, COLORS.t1);
+    arc(drawRoot, pulley, 75, 0, -s.beta, COLORS.t2);
 
     // crate
-    const cx = PULLEY.x - CRATE.w / 2;
-    el('rect', { x: cx, y: CRATE.top, width: CRATE.w, height: CRATE.h, rx: 4,
+    const cx = pulley.x - CRATE.w / 2;
+    el('rect', { x: cx, y: crateTop, width: CRATE.w, height: CRATE.h, rx: 4,
                  fill: '#d8d2bb', stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
-    el('line', { x1: cx, y1: CRATE.top, x2: cx + CRATE.w, y2: CRATE.top + CRATE.h,
+    el('line', { x1: cx, y1: crateTop, x2: cx + CRATE.w, y2: crateTop + CRATE.h,
                  stroke: COLORS.ink, 'stroke-width': 1.5 }, drawRoot);
-    el('line', { x1: cx + CRATE.w, y1: CRATE.top, x2: cx, y2: CRATE.top + CRATE.h,
+    el('line', { x1: cx + CRATE.w, y1: crateTop, x2: cx, y2: crateTop + CRATE.h,
                  stroke: COLORS.ink, 'stroke-width': 1.5 }, drawRoot);
 
     // the pulley itself, drawn over the ropes
-    el('circle', { cx: PULLEY.x, cy: PULLEY.y, r: 15, fill: '#dbe7f3',
+    el('circle', { cx: pulley.x, cy: pulley.y, r: 15, fill: '#dbe7f3',
                    stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
-    el('circle', { cx: PULLEY.x, cy: PULLEY.y, r: 4, fill: COLORS.ink }, drawRoot);
+    el('circle', { cx: pulley.x, cy: pulley.y, r: 4, fill: COLORS.ink }, drawRoot);
+
+    // the fixed ceiling anchor at D, drawn as the same small ring used for anchor C
+    el('circle', { cx: ANCHOR_D.x, cy: ANCHOR_D.y, r: 7, fill: '#fff',
+                   stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
 
     // ground anchor at C, drawn under the handle
     el('circle', { cx: C.x, cy: C.y, r: 7, fill: '#fff',
                    stroke: COLORS.ink, 'stroke-width': 3 }, drawRoot);
 
+    // the slope-triangle glyph -- the textbook construction -- only when the rope is
+    // exactly on one of the four Pythagorean-triple detents
+    const glyph = slopeGlyph(s.beta);
+    if (glyph) {
+      const { p0, p1, p2, triple } = glyph;
+      el('line', { x1: p0.x, y1: p0.y, x2: p1.x, y2: p1.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      el('line', { x1: p1.x, y1: p1.y, x2: p2.x, y2: p2.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      el('line', { x1: p0.x, y1: p0.y, x2: p2.x, y2: p2.y,
+                   stroke: COLORS.ink, 'stroke-width': 2 }, drawRoot);
+      // "down" just left of P0-P1
+      text(drawRoot, p0.x - 6, (p0.y + p1.y) / 2 + 4, String(triple.down),
+           { size: 12, weight: 600, anchor: 'end' });
+      // "across" just below P1-P2
+      text(drawRoot, (p1.x + p2.x) / 2, p1.y + 16, String(triple.across),
+           { size: 12, weight: 600, anchor: 'middle' });
+      // "hyp" just outside the hypotenuse P0-P2 -- offset perpendicular to it, away
+      // from the right-angle vertex P1 (same technique triangle.js uses for its legs)
+      const hx = p2.x - p0.x, hy = p2.y - p0.y;
+      const hlen = Math.hypot(hx, hy) || 1;
+      let hnx = -hy / hlen, hny = hx / hlen;
+      const hmx = (p0.x + p2.x) / 2, hmy = (p0.y + p2.y) / 2;
+      if (hnx * (hmx - p1.x) + hny * (hmy - p1.y) < 0) { hnx = -hnx; hny = -hny; }
+      text(drawRoot, hmx + hnx * 14, hmy + hny * 14 + 4, String(triple.hyp),
+           { size: 12, weight: 600, anchor: 'middle' });
+    }
+
     // labels
-    text(drawRoot, D.x - 22, D.y - 6, 'D', { weight: 600, anchor: 'end' });
-    text(drawRoot, PULLEY.x + 22, PULLEY.y - 12, 'B', { weight: 600 });
-    text(drawRoot, PULLEY.x - CRATE.w / 2 - 10, CRATE.top + 22, 'A', { weight: 600, anchor: 'end' });
+    text(drawRoot, ANCHOR_D.x - 10, ANCHOR_D.y + 24, 'D', { weight: 600, anchor: 'end' });
+    text(drawRoot, pulley.x + 22, pulley.y - 12, 'B', { weight: 600 });
+    text(drawRoot, pulley.x - CRATE.w / 2 - 10, crateTop + 22, 'A', { weight: 600, anchor: 'end' });
     text(drawRoot, C.x + 4, C.y + 26, 'C', { weight: 600 });
 
-    text(drawRoot, PULLEY.x - 78, PULLEY.y - 46, `θ = ${s.theta.toFixed(1)}°`,
+    text(drawRoot, pulley.x - 78, pulley.y - 46, `θ = ${s.theta.toFixed(1)}°`,
          { fill: COLORS.t1, weight: 600, anchor: 'end' });
-    // The detent marker Todd chose: naming the textbook slope when you're on it.
-    const atDetent = Math.abs(s.beta - BETA_SPECIAL) < 1e-9;
-    const betaText = atDetent ? `β = ${s.beta.toFixed(1)}° (12-13-5)` : `β = ${s.beta.toFixed(1)}°`;
-    text(drawRoot, PULLEY.x + 92, PULLEY.y + 58, betaText,
+    text(drawRoot, pulley.x + 92, pulley.y + 58, `β = ${s.beta.toFixed(1)}°`,
          { fill: COLORS.t2, weight: 600 });
 
     const labels = sceneLabels(s);
-    const dm = { x: (D.x + PULLEY.x) / 2, y: (D.y + PULLEY.y) / 2 };
+    const dm = { x: (ANCHOR_D.x + pulley.x) / 2, y: (ANCHOR_D.y + pulley.y) / 2 };
     text(drawRoot, dm.x - 14, dm.y, labels.tbd,
          { fill: COLORS.t1, weight: 600, anchor: 'end' });
-    text(drawRoot, PULLEY.x - 14, (PULLEY.y + CRATE.top) / 2, labels.tab,
+    text(drawRoot, pulley.x - 14, (pulley.y + crateTop) / 2, labels.tab,
          { fill: COLORS.w, weight: 600, anchor: 'end' });
-    const cm = { x: (PULLEY.x + C.x) / 2, y: (PULLEY.y + C.y) / 2 };
+    const cm = { x: (pulley.x + C.x) / 2, y: (pulley.y + C.y) / 2 };
     text(drawRoot, cm.x + 14, cm.y, labels.tbc,
          { fill: COLORS.t2, weight: 600 });
-    text(drawRoot, PULLEY.x, CRATE.top + CRATE.h / 2 + 5, `W = ${Math.round(s.W)} N`,
+    text(drawRoot, pulley.x, crateTop + CRATE.h / 2 + 5, `W = ${Math.round(s.W)} N`,
          { anchor: 'middle', weight: 600 });
 
     cHandle.setAttribute('transform', `translate(${C.x} ${C.y})`);
