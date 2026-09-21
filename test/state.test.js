@@ -71,3 +71,37 @@ test('unsubscribe stops delivery', () => {
   st.setWeight(400);
   assert.strictEqual(calls, 1);
 });
+
+test('setBeta notifies once per real change and not at all for a no-op', () => {
+  const st = createState();
+  let calls = 0;
+  st.subscribe(() => calls++);
+  st.setBeta(BETA_SPECIAL);        // already at BETA_SPECIAL
+  assert.strictEqual(calls, 0);
+  st.setBeta(50);
+  assert.strictEqual(calls, 1);
+  st.setBeta(50);                  // unchanged
+  assert.strictEqual(calls, 1);
+  st.setBeta(-999);                // clamps to BETA_MIN, a real change
+  assert.strictEqual(calls, 2);
+  st.setBeta(-999);                // clamps to BETA_MIN again: no-op
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(st.getState().beta, BETA_MIN);
+});
+
+test('setBetaExact notifies once per real change and not at all for a no-op', () => {
+  const st = createState();
+  let calls = 0;
+  st.subscribe(() => calls++);
+  st.setBetaExact(BETA_SPECIAL);   // already at BETA_SPECIAL
+  assert.strictEqual(calls, 0);
+  st.setBetaExact(60);
+  assert.strictEqual(calls, 1);
+  st.setBetaExact(60);             // unchanged
+  assert.strictEqual(calls, 1);
+  st.setBetaExact(999);            // clamps to BETA_MAX, a real change
+  assert.strictEqual(calls, 2);
+  st.setBetaExact(999);            // clamps to BETA_MAX again: no-op
+  assert.strictEqual(calls, 2);
+  assert.strictEqual(st.getState().beta, BETA_MAX);
+});
