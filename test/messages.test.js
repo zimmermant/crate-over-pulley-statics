@@ -99,7 +99,7 @@ test('each detent announces the correct T_BD/W ratio from live state', () => {
     const state = snap(W, beta);
     const expectedRatio = (state.TBD / W).toFixed(2);
     const m = pickMessage(state, null);
-    assert.match(m, new RegExp(`T_BD = ${expectedRatio} W`),
+    assert.match(m, new RegExp(`T<sub>BD</sub> = ${expectedRatio} W`),
       `triple ${t.across}-${t.down}-${t.hyp}: T_BD should be ${expectedRatio} W`);
   }
 });

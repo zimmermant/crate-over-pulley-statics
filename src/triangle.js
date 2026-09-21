@@ -1,5 +1,5 @@
 import { DEG } from './physics.js';
-import { el, clear, text, COLORS } from './svg.js';
+import { el, clear, text, forceParts, COLORS } from './svg.js';
 
 export const TRI_VB = { w: 480, h: 380 };
 const TRI_PAD = 0.12;
@@ -8,7 +8,7 @@ const TRI_PAD = 0.12;
 // the crate's pull straight down, then the pull toward C, then T_BD closes it.
 export function trianglePoints(s) {
   const a = { x: 0, y: 0 };
-  const b = { x: a.x, y: a.y - s.TAB };
+  const b = { x: a.x, y: a.y - s.TBA };
   const c = { x: b.x + s.TBC * Math.cos(s.beta * DEG),
               y: b.y - s.TBC * Math.sin(s.beta * DEG) };
   return [a, b, c];
@@ -21,9 +21,9 @@ export function trianglePoints(s) {
 // never inline, so the triangle can never drift from what the other panels say.
 export function triangleLabels(s) {
   return {
-    tab: `T_AB = ${Math.round(s.TAB)} N`,
-    tbc: `T_BC = ${Math.round(s.TBC)} N`,
-    tbd: `T_BD = ${Math.round(s.TBD)} N`
+    tba: forceParts('BA', Math.round(s.TBA)),
+    tbc: forceParts('BC', Math.round(s.TBC)),
+    tbd: forceParts('BD', Math.round(s.TBD))
   };
 }
 
@@ -54,7 +54,7 @@ export function createTriangle(svg) {
 
     const labels = triangleLabels(s);
     const legs = [
-      [a, b, COLORS.w,  labels.tab],
+      [a, b, COLORS.w,  labels.tba],
       [b, c, COLORS.t2, labels.tbc],
       [c, a, COLORS.t1, labels.tbd]
     ];

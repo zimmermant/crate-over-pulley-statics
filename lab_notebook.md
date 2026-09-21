@@ -1,5 +1,127 @@
 # Lab Notebook
 
+## 2026-09-21 — Construction lines, delta read at D, and real tension subscripts
+
+### Summary
+
+Four changes Todd asked for, all in the situation diagram plus the label
+plumbing behind it:
+
+1. A dotted horizontal construction line through the pulley B. theta is
+   measured from the ray running LEFT of B and beta from the ray running RIGHT,
+   and neither ray was drawn — both arcs closed on nothing. One line supplies
+   both. Drawn before the pulley disc, which masks the stretch across the sheave.
+2. delta (the support rope's angle from vertical) moved from B to D. Its arc is
+   now centred on the ceiling anchor, measured against a dashed vertical dropped
+   from D. Same angle — the verticals at D and B are parallel — but read where
+   the rope actually meets the ceiling. The old dashed vertical rising from B is
+   gone; gamma never needed it, since the crate's rope IS its vertical ray.
+3. gamma's value label moved back beside the wedge between BA and BC, tied to
+   its arc by a leader line.
+4. T_BA / T_BC / T_BD now render real subscripts — `<tspan>` in the three SVG
+   panels, `<sub>` in the equations and notes panels — instead of a literal
+   underscore. The crate's rope tension was also renamed T_AB -> T_BA so all
+   three forces are named from the pulley they act on.
+
+85 tests pass (was 80). Build byte-reproducible across two runs (52224 bytes,
+sha256 6e73fe8e52dd78c6...).
+
+### Decisions made and why
+
+**gamma's number cannot go inside its wedge, so the arc goes in and the number
+sits beside it.** Todd asked for gamma "in between lines AB and BC". The arc
+already was; the label was not. Measuring before building: the wedge between
+the crate's rope and BC spans 46 deg at beta=44 but only 13 deg at beta=77, and
+the crate blocks it below a depth of 250px. The widest clear horizontal span
+inside it at beta=77 is 56.1px. The label measures 57.7px in the browser. It
+does not fit — before allowing any clearance at all from either rope. Same for
+delta at D: that wedge is 26.1px across at its widest. Offered Todd three
+options (leader line / bare symbol with the value in the equations panel /
+shrink the label to ~9px); he chose the leader line. So the arc stays in the
+wedge, where it belongs, and the number sits just outside the vertical ray
+bounding the wedge with a thin leader running back to the arc — ordinary
+drafting practice for an angle too tight to letter inside.
+
+**Both leaders run LEFT, and both start on their own arc at the wedge's
+mid-angle.** Left, because the region right of BC is already occupied by beta's
+arc (radius 75) and its label — a trial placement there put the gamma label
+box across beta's arc at around 40 deg. Left of the bounding vertical is empty
+in both cases. Starting on the arc is what makes the leader read as "this arc",
+not "this ray"; a leader from the arc's *terminus* would sit on a bounding ray
+and could be misread as labelling the rope.
+
+**The two annotation arcs are now solid, not dashed.** Found by rendering, not
+by reasoning: at beta=77 delta's arc is 6.8px long and gamma's 10.4px (measured
+with `getTotalLength`), and the '4 3' dash pattern renders the shortest of them
+as a single dash — the mark identifying the angle disappears exactly where the
+angle is tightest. Solid also gives a clean reading of the four arcs: dashed
+colour = theta and beta, measured off the horizontal construction line; solid
+grey = gamma and delta, the derived interior angles.
+
+**T_AB -> T_BA.** Todd's request listed "T_BA, T_BC, and T_BD". All three
+forces act on the pulley at B, so naming all three from B is the consistent
+set; T_AB was the odd one out and read as a different force. Renamed the state
+field (`TBA`), the label key (`tba`) and the FBD direction key (`'ba'`) together
+so no stale spelling survives. Stated the interpretation to Todd before acting
+on it.
+
+**A force label is now a list of parts, not a string.** `forceParts('BA', 500)`
+returns `['T', {sub:'BA'}, ' = 500 N']`. The alternative was to keep the
+`T_BA = 500 N` string and have the text renderer parse `X_YZ` into tspans; that
+couples display to a string convention and silently subscripts any underscore
+that appears for another reason. Parts state the subscript once, where the
+label is built, and every consumer — SVG text, the aria-labels, the
+cross-panel agreement test — reads the same structure.
+
+### Problems encountered and how they were resolved
+
+**`String.prototype.sub` broke the part test.** The first cut of
+`partsToString` tested `p.sub !== undefined` to decide whether a part was a
+subscript. Every plain JavaScript string answers that test, because `.sub()` is
+a real (legacy) String method — so `partsToString(['T', {sub:'BA'}, ' = 500 N'])`
+returned `"_function sub() { [native code] }_BA_function sub() { [native code] }"`
+and the cross-panel label test failed with "no number found in label". Fixed
+with an explicit `typeof p === 'object'` guard in `isSubPart`, and the test that
+catches it records exactly this mutation.
+
+**My own wedge-width figure in the code comment was wrong.** The comment
+claimed the labels are "about 64px wide"; measured in the browser they are
+57.7px (gamma) and 55.9px (delta). The conclusion holds — 57.7 > 56.1 — but the
+margin is 1.6px, not 8px, so the comment now quotes the measured numbers.
+
+**The browser pane returned a stale screenshot twice.** A screenshot taken in
+the same `browser_batch` as the JS that changed the state showed the *previous*
+state, once convincingly enough (labels reading beta=77 while `aria-valuenow`
+read 44) to look like a render bug. Reading the label text out of the DOM
+settled it: the DOM was correct, the image was not. Rule for next time: verify
+state numerically from the DOM, and take screenshots in a separate call from
+the JS that changes state.
+
+### Verification
+
+- 85/85 tests pass; build byte-reproducible.
+- Four mutations run against the new tests, each caught:
+  `HORIZ_REF_HALF = 60` (line falls short of beta's arc), `HORIZ_REF_HALF = 400`
+  (line leaves the panel), `deltaLeader` centred on the pulley instead of
+  ANCHOR_D, and either label placed back at its wedge's mid-angle.
+- Real `getBBox` sweep in the browser over 35 states (beta 44 -> 77, whole
+  range): worst distance from a label to any rope is 14.0px for gamma and
+  19.7px for delta — better than the pre-existing T_BC (7.9px) and T_BD
+  (9.3px). No label leaves the viewBox at any beta. (The W label reads 0px
+  because it sits on the crate's own diagonals by design.)
+- All nine force labels across the three SVG panels render a `<tspan>`
+  subscript; equations and notes panels render `<sub>`.
+
+### Open questions / next steps
+
+- Published at Todd's go-ahead to
+  https://zimmermant.github.io/crate-over-pulley-statics/ — a new commit on
+  the existing stripped history, not a rewrite. `docs/` stays out of the
+  published repo, as before.
+- One old README revision in the published history still names a local
+  Homebrew node path (no username, no secret). Left in place rather than
+  rewriting published history; still Todd's call.
+
 ## 2026-09-21 — Fix: gamma/delta labels moved outside their own wedges
 
 ### Summary

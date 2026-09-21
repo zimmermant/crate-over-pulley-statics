@@ -11,7 +11,7 @@ function detentMessage(s, triple) {
   return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
          `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
          `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
-         `T_BD = ${ratio} W = ${tbd} N.`;
+         `T<sub>BD</sub> = ${ratio} W = ${tbd} N.`;
 }
 
 export function pickMessage(s, prev) {
@@ -28,7 +28,7 @@ export function pickMessage(s, prev) {
   if (changedW) {
     return `W went from ${Math.round(prev.W)} N to ${w} N and θ did not move. ` +
            `It never does — θ = 45° + β/2 depends only on where C sits. ` +
-           `T_BD scaled with the load, to ${tbd} N.`;
+           `T<sub>BD</sub> scaled with the load, to ${tbd} N.`;
   }
 
   if (changedB) {
@@ -39,7 +39,7 @@ export function pickMessage(s, prev) {
     const half = `β moved ${db.toFixed(1)}°, θ moved ${(db / 2).toFixed(1)}°. ` +
                  `θ always moves half as far, because the support rope tracks the ` +
                  `bisector of the two rope segments. Now θ = ${s.theta.toFixed(1)}°, ` +
-                 `T_BD = ${tbd} N.`;
+                 `T<sub>BD</sub> = ${tbd} N.`;
     if (atMax) {
       return half + ` The anchor is as steep as it goes: both segments now pull almost ` +
              `straight down and their resultant approaches 2W, already at ${(s.TBD / s.W).toFixed(2)} W.`;
@@ -69,13 +69,16 @@ export function pickMessage(s, prev) {
   return `A frictionless pulley redirects the rope without changing its tension, so both ` +
          `segments carry ${w} N. Two equal pulls add along the bisector of the angle ` +
          `between them, which is why θ = ${s.theta.toFixed(1)}° and ` +
-         `T_BD = ${tbd} N.`;
+         `T<sub>BD</sub> = ${tbd} N.`;
 }
 
 export function createMessages(node) {
   let prev = null;
   function render(s) {
-    node.textContent = pickMessage(s, prev);
+    // innerHTML, not textContent: each message carries a <sub> for the tension's
+    // subscript. Everything interpolated into them is a number formatted by
+    // toFixed/round, so there is nothing to escape.
+    node.innerHTML = pickMessage(s, prev);
     prev = s;
   }
   return { render };

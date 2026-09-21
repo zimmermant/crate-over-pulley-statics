@@ -9,8 +9,8 @@ export function createState() {
   let subscribers = [];
 
   function getState() {
-    const { TAB, TBC, TBD, theta } = solve({ W, beta });
-    return { W, beta, TAB, TBC, TBD, theta };
+    const { TBA, TBC, TBD, theta } = solve({ W, beta });
+    return { W, beta, TBA, TBC, TBD, theta };
   }
 
   function notify() {

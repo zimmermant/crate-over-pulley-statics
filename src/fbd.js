@@ -1,5 +1,5 @@
 import { DEG, WEIGHT_MIN, WEIGHT_MAX, weightFromMagnitude } from './physics.js';
-import { el, clear, text, COLORS, clientToSvg } from './svg.js';
+import { el, clear, text, forceParts, partsToString, COLORS, clientToSvg } from './svg.js';
 
 export const FBD_VB = { w: 720, h: 620 };
 export const FBD_ORIGIN = { x: 365, y: 368 };
@@ -13,13 +13,13 @@ export const FBD_SCALE = 0.20;
 
 // Unit vector of each force in SVG coordinates (y down).
 function fbdDir(s, which) {
-  if (which === 'ab') return { x: 0, y: 1 };                                        // straight down
+  if (which === 'ba') return { x: 0, y: 1 };                                        // straight down
   if (which === 'bc') return { x: Math.cos(s.beta * DEG), y: Math.sin(s.beta * DEG) };   // down-right
   return { x: -Math.cos(s.theta * DEG), y: -Math.sin(s.theta * DEG) };             // up-left
 }
 
 function fbdMag(s, which) {
-  if (which === 'ab') return s.TAB;
+  if (which === 'ba') return s.TBA;
   if (which === 'bc') return s.TBC;
   return s.TBD;
 }
@@ -35,9 +35,9 @@ export function arrowTip(s, which) {
 // never inline, so the FBD can never drift from what the other panels say.
 export function fbdLabels(s) {
   return {
-    tab: `T_AB = ${Math.round(s.TAB)} N`,
-    tbc: `T_BC = ${Math.round(s.TBC)} N`,
-    tbd: `T_BD = ${Math.round(s.TBD)} N`
+    tba: forceParts('BA', Math.round(s.TBA)),
+    tbc: forceParts('BC', Math.round(s.TBC)),
+    tbd: forceParts('BD', Math.round(s.TBD))
   };
 }
 
@@ -57,7 +57,7 @@ export function createFbd(svg, actions) {
   let latest = null;
 
   const defs = el('defs', {}, svg);
-  for (const [key, color] of [['ab', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
+  for (const [key, color] of [['ba', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
     const m = el('marker', {
       id: `head-${key}`, viewBox: '0 0 10 10', refX: 8, refY: 5,
       markerWidth: 6, markerHeight: 6, orient: 'auto-start-reverse'
@@ -66,7 +66,7 @@ export function createFbd(svg, actions) {
   }
 
   const handles = {};
-  for (const [key, color] of [['ab', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
+  for (const [key, color] of [['ba', COLORS.w], ['bc', COLORS.t2], ['bd', COLORS.t1]]) {
     const g = el('g', {
       class: 'handle', tabindex: '0', role: 'slider', 'data-fbd': key
     }, handleRoot);
@@ -88,7 +88,7 @@ export function createFbd(svg, actions) {
     const spec = [
       ['bd', COLORS.t1, labels.tbd],
       ['bc', COLORS.t2, labels.tbc],
-      ['ab', COLORS.w,  labels.tab]
+      ['ba', COLORS.w,  labels.tba]
     ];
     const atLimit = Math.abs(s.W - WEIGHT_MIN) < 1e-9 || Math.abs(s.W - WEIGHT_MAX) < 1e-9;
     for (const [key, color, label] of spec) {
@@ -97,7 +97,7 @@ export function createFbd(svg, actions) {
         x1: FBD_ORIGIN.x, y1: FBD_ORIGIN.y, x2: t.x, y2: t.y,
         stroke: color, 'stroke-width': 4, 'marker-end': `url(#head-${key})`
       }, drawRoot);
-      const off = key === 'ab' ? { x: -14, y: 0 } : key === 'bc' ? { x: 16, y: 6 } : { x: -16, y: -4 };
+      const off = key === 'ba' ? { x: -14, y: 0 } : key === 'bc' ? { x: 16, y: 6 } : { x: -16, y: -4 };
       text(drawRoot, t.x + off.x, t.y + off.y, label,
            { fill: color, weight: 600, anchor: key === 'bc' ? 'start' : 'end' });
 
@@ -105,7 +105,8 @@ export function createFbd(svg, actions) {
       handles[key].setAttribute('aria-valuenow', Math.round(s.W));
       handles[key].setAttribute('aria-valuemin', String(WEIGHT_MIN));
       handles[key].setAttribute('aria-valuemax', String(WEIGHT_MAX));
-      handles[key].setAttribute('aria-label', `${label} arrowhead; drag to change the crate weight`);
+      handles[key].setAttribute('aria-label',
+        `${partsToString(label)} arrowhead; drag to change the crate weight`);
       handles[key].classList.toggle('handle--limit', atLimit);
     }
 

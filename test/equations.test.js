@@ -39,7 +39,7 @@ test('the vertical terms balance to the displayed precision', () => {
 
 test('terms are formatted to one decimal place', () => {
   const t = terms(snap(500, 60));
-  for (const k of ['tab', 'tbc', 'tbd', 'beta', 'theta', 'fxLeft', 'fyUp']) {
+  for (const k of ['tba', 'tbc', 'tbd', 'beta', 'theta', 'fxLeft', 'fyUp']) {
     assert.match(t[k], /^-?\d+\.\d$/, `${k} was "${t[k]}"`);
   }
 });
@@ -53,7 +53,7 @@ test('the textbook case prints the expected numbers', () => {
 });
 
 // fyFar must come from the unrounded state, not from subtracting two already
-// -rounded display strings (fyDown minus tab), which is arithmetic on rounded
+// -rounded display strings (fyDown minus tba), which is arithmetic on rounded
 // values and can be off by up to 0.1 N. This is what actually pins that: mutate
 // fyFar in equations.js to `(s.TBC * Math.sin(s.beta * DEG) + 99).toFixed(1)`
 // and this test fails everywhere in the sweep.
@@ -61,8 +61,8 @@ test('the far segment vertical term plus the crate weight equals the upward pull
   for (const W of [100, 337, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 0.5) {
       const t = terms(snap(W, beta));
-      assert.strictEqual(Number(t.fyUp), Number(t.tab) + Number(t.fyFar),
-        `at W=${W} beta=${beta}: fyUp=${t.fyUp} tab=${t.tab} fyFar=${t.fyFar}`);
+      assert.strictEqual(Number(t.fyUp), Number(t.tba) + Number(t.fyFar),
+        `at W=${W} beta=${beta}: fyUp=${t.fyUp} tba=${t.tba} fyFar=${t.fyFar}`);
     }
   }
 });

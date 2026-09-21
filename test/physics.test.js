@@ -38,7 +38,7 @@ test('both rope segments carry exactly the crate weight', () => {
   for (const W of [100, 350, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 2.5) {
       const s = solve({ W, beta });
-      assert.strictEqual(s.TAB, W);
+      assert.strictEqual(s.TBA, W);
       assert.strictEqual(s.TBC, W);
     }
   }
@@ -206,7 +206,7 @@ test('every arrowhead length inverts back to the weight that drew it', () => {
   for (const W of [100, 275, 400, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 5) {
       const s = solve({ W, beta });
-      assert.ok(Math.abs(weightFromMagnitude(s.TAB, 'ab', beta) - W) < 1e-9);
+      assert.ok(Math.abs(weightFromMagnitude(s.TBA, 'ba', beta) - W) < 1e-9);
       assert.ok(Math.abs(weightFromMagnitude(s.TBC, 'bc', beta) - W) < 1e-9);
       assert.ok(Math.abs(weightFromMagnitude(s.TBD, 'bd', beta) - W) < 1e-9);
     }

@@ -6,7 +6,7 @@ import { COLORS } from './svg.js';
 // disagree in the last digit, right beside a printed "= 0".
 export function terms(s) {
   return {
-    tab: s.TAB.toFixed(1),
+    tba: s.TBA.toFixed(1),
     tbc: s.TBC.toFixed(1),
     tbd: s.TBD.toFixed(1),
     beta: s.beta.toFixed(1),
@@ -24,7 +24,7 @@ export function terms(s) {
     // NOT derived by subtracting two already-rounded display strings, which
     // is arithmetic on rounded values and can be off by up to 0.1 N.
     fyFar:   (s.TBC * Math.sin(s.beta * DEG)).toFixed(1),
-    fyDown:  (s.TAB + s.TBC * Math.sin(s.beta * DEG)).toFixed(1)
+    fyDown:  (s.TBA + s.TBC * Math.sin(s.beta * DEG)).toFixed(1)
   };
 }
 
@@ -37,13 +37,13 @@ export function createEquations(node) {
       `<div>&Sigma;F<sub>x</sub>: <span style="color:${b}">${t.tbc}&middot;cos&nbsp;${t.beta2}&deg;</span>` +
       ` &minus; <span style="color:${o}">${t.tbd}&middot;cos&nbsp;${t.theta2}&deg;</span> = 0</div>` +
       `<div>&Sigma;F<sub>y</sub>: <span style="color:${o}">${t.tbd}&middot;sin&nbsp;${t.theta2}&deg;</span>` +
-      ` &minus; <span style="color:${g}">${t.tab}</span>` +
+      ` &minus; <span style="color:${g}">${t.tba}</span>` +
       ` &minus; <span style="color:${b}">${t.tbc}&middot;sin&nbsp;${t.beta2}&deg;</span> = 0</div>` +
       `<div style="font-size:12px;color:#9aa1ab;font-family:system-ui;line-height:1.5;margin-top:6px">` +
       `Both horizontal terms equal ${t.fxLeft} N. The upward pull of ${t.fyUp} N carries the ` +
-      `crate&rsquo;s ${t.tab} N plus the ${t.fyFar} N the far ` +
+      `crate&rsquo;s ${t.tba} N plus the ${t.fyFar} N the far ` +
       `segment adds. Both sums are exactly zero for the underlying numbers &mdash; that is what fixes ` +
-      `T_BD and &theta;. The angles above are rounded for display, so multiplying the printed ` +
+      `T<sub>BD</sub> and &theta;. The angles above are rounded for display, so multiplying the printed ` +
       `numbers only closes to within about a tenth of a newton.</div>`;
   }
   return { render };

@@ -90,7 +90,7 @@ export function snapBeta(deg) {
 export function solve({ W, beta }) {
   const b = beta * DEG;
   return {
-    TAB: W,
+    TBA: W,
     TBC: W,
     TBD: 2 * W * Math.cos(Math.PI / 4 - b / 2),
     theta: 45 + beta / 2
@@ -106,5 +106,5 @@ export function weightFromMagnitude(mag, which, beta) {
     const k = 2 * Math.cos(Math.PI / 4 - clampBeta(beta) * DEG / 2);
     return clampWeight(m / k);
   }
-  return clampWeight(m);        // the 'ab' and 'bc' arrows are both W long
+  return clampWeight(m);        // the 'ba' and 'bc' arrows are both W long
 }

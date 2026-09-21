@@ -7,7 +7,7 @@ test('opens on the textbook case', () => {
   const s = createState().getState();
   assert.strictEqual(s.beta, BETA_SPECIAL);
   assert.strictEqual(s.W, 500);
-  assert.strictEqual(s.TAB, 500);
+  assert.strictEqual(s.TBA, 500);
   assert.strictEqual(s.TBC, 500);
   assert.ok(Math.abs(s.theta - 78.69006752597979) < 1e-9);
 });

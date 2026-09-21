@@ -27,11 +27,42 @@ export function clear(node) {
   while (node.firstChild) node.removeChild(node.firstChild);
 }
 
+// A force label is a LIST OF PARTS rather than a string, so its subscript can
+// render as a real <tspan> here and a real <sub> in the HTML panels instead of a
+// literal underscore. Stating the subscript once, where the label is built, is
+// what keeps the scene, the free-body diagram, the force triangle and the
+// aria-labels from drifting into different spellings of the same force.
+export function forceParts(sub, newtons) {
+  return ['T', { sub }, ` = ${newtons} N`];
+}
+
+// A part is a subscript only if it is an OBJECT carrying a string `sub`. Testing
+// `p.sub !== undefined` alone silently treats every plain string as a subscript,
+// because String.prototype.sub is a real (legacy) method on every string.
+function isSubPart(p) {
+  return p !== null && typeof p === 'object' && typeof p.sub === 'string';
+}
+
+// Flatten to the underscore spelling, for aria-labels and for tests that read a
+// label's number back out.
+export function partsToString(parts) {
+  if (!Array.isArray(parts)) return String(parts);
+  return parts.map(p => isSubPart(p) ? `_${p.sub}` : String(p)).join('');
+}
+
+// The subscript drops by SUB_DY and shrinks to SUB_SCALE of the label's size; the
+// part after it lifts the baseline straight back, so the tail sits level with the
+// leading `T` rather than staying sunk for the rest of the string.
+const SUB_DY = 3.5;
+const SUB_SCALE = 0.72;
+
 // Text with a background-coloured halo so labels stay readable where they cross lines.
+// `str` is either a plain string or a parts list from forceParts().
 export function text(parent, x, y, str, opts = {}) {
+  const size = opts.size || 13;
   const node = el('text', {
     x, y,
-    'font-size': opts.size || 13,
+    'font-size': size,
     'font-family': 'system-ui, -apple-system, sans-serif',
     fill: opts.fill || COLORS.ink,
     'text-anchor': opts.anchor || 'start',
@@ -41,7 +72,21 @@ export function text(parent, x, y, str, opts = {}) {
     'stroke-width': opts.halo === false ? 0 : 3.5,
     'stroke-linejoin': 'round'
   }, parent);
-  node.textContent = str;
+  if (Array.isArray(str)) {
+    let afterSub = false;
+    for (const part of str) {
+      if (isSubPart(part)) {
+        el('tspan', { dy: SUB_DY, 'font-size': Math.round(size * SUB_SCALE * 100) / 100 },
+           node).textContent = part.sub;
+        afterSub = true;
+      } else {
+        el('tspan', afterSub ? { dy: -SUB_DY } : {}, node).textContent = String(part);
+        afterSub = false;
+      }
+    }
+  } else {
+    node.textContent = str;
+  }
   return node;
 }
 

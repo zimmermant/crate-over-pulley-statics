@@ -4,7 +4,8 @@ import { DEG, BETA_MIN, BETA_MAX, BETA_SPECIAL, tripleBeta, solve } from '../src
 import {
   SCENE_VB, CEIL_Y, ANCHOR_D, GROUND_Y, CRATE, ANCHOR_R,
   pulleyAt, anchorC, ropeBcXAt, betaFromPointerX, keyboardStep, slopeGlyph,
-  interiorAngles
+  interiorAngles, horizontalRef, gammaLeader, deltaLeader,
+  HORIZ_REF_HALF, VERT_REF_LEN, DELTA_R, GAMMA_R
 } from '../src/scene.js';
 
 test('every reachable beta keeps the drawing inside the panel and clear of the crate', () => {
@@ -144,5 +145,115 @@ test('2 * cos(delta) equals solve().TBD / W at every reachable beta', () => {
       assert.ok(Math.abs(2 * Math.cos(delta * DEG) - TBD / W) < 1e-12,
         `2*cos(delta) vs TBD/W mismatch at W=${W} beta=${beta}`);
     }
+  }
+});
+
+// --- annotation geometry ---------------------------------------------------
+
+// Mutation proof: HORIZ_REF_HALF = 60 fails the "outruns both arcs" assert (beta's
+// arc is drawn at radius 75); HORIZ_REF_HALF = 400 fails panel containment at the
+// low-beta end, where the pulley has swung furthest right.
+test('the horizontal construction line runs through B and outruns both angle arcs', () => {
+  const OUTER_ARC_R = 75;          // beta's arc, the outer of the two at the pulley
+  for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.25) {
+    const pulley = pulleyAt(45 + beta / 2);
+    const h = horizontalRef(pulley);
+    assert.strictEqual(h.y1, pulley.y, `left end left the pulley's height at beta=${beta}`);
+    assert.strictEqual(h.y2, pulley.y, `right end left the pulley's height at beta=${beta}`);
+    assert.ok(pulley.x - h.x1 >= OUTER_ARC_R, `theta's ray falls short of its arc at beta=${beta}`);
+    assert.ok(h.x2 - pulley.x >= OUTER_ARC_R, `beta's ray falls short of its arc at beta=${beta}`);
+    assert.ok(h.x1 > 0 && h.x2 < SCENE_VB.w, `the line leaves the panel at beta=${beta}`);
+  }
+});
+
+// Mutation proof: centring deltaLeader on pulleyAt(s.theta) -- where delta's arc was
+// drawn before this change -- fails the distance-from-D assert at every beta, since
+// the pulley sits ROPE_BD_LEN away from D. Swapping gamma's mid-angle to (90+theta)/2
+// fails the mid-angle assert.
+test('delta is measured at the ceiling anchor and gamma at the pulley', () => {
+  assert.ok(VERT_REF_LEN > DELTA_R, "the vertical dropped from D must reach past delta's arc");
+  for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.25) {
+    const theta = 45 + beta / 2;
+    const s = { beta, theta };
+    const pulley = pulleyAt(theta);
+    const g = gammaLeader(s), d = deltaLeader(s);
+
+    assert.ok(Math.abs(Math.hypot(d.from.x - ANCHOR_D.x, d.from.y - ANCHOR_D.y) - DELTA_R) < 1e-9,
+      `delta's leader does not start on its arc at D at beta=${beta}`);
+    assert.ok(Math.abs(Math.hypot(g.from.x - pulley.x, g.from.y - pulley.y) - GAMMA_R) < 1e-9,
+      `gamma's leader does not start on its arc at B at beta=${beta}`);
+
+    // each leader starts at its own wedge's mid-angle, measured below horizontal
+    assert.ok(Math.abs(Math.atan2(d.from.y - ANCHOR_D.y, d.from.x - ANCHOR_D.x) / DEG
+                       - (90 + theta) / 2) < 1e-9, `delta mid-angle at beta=${beta}`);
+    assert.ok(Math.abs(Math.atan2(g.from.y - pulley.y, g.from.x - pulley.x) / DEG
+                       - (90 + beta) / 2) < 1e-9, `gamma mid-angle at beta=${beta}`);
+
+    // and each label sits outside the vertical ray bounding its own wedge
+    assert.ok(d.at.x < ANCHOR_D.x, `delta's label is not left of the vertical at beta=${beta}`);
+    assert.ok(g.at.x < pulley.x, `gamma's label is not left of the crate's rope at beta=${beta}`);
+  }
+});
+
+// A generous bounding box for either label: the widest string either ever holds is
+// "gamma = 46.0 deg", about 64px in the browser, and the halo adds 3.5px a side.
+// 78 x 22 covers both with room over, so a clearance that passes here passes on screen.
+function labelBox(at) {
+  return { x0: at.x - 74, x1: at.x + 4, y0: at.y - 15, y1: at.y + 7 };
+}
+function distToBox(p, b) {
+  return Math.hypot(Math.max(b.x0 - p.x, 0, p.x - b.x1), Math.max(b.y0 - p.y, 0, p.y - b.y1));
+}
+function segBoxDist(p, q, b) {
+  let min = Infinity;
+  for (let i = 0; i <= 400; i++) {
+    const t = i / 400;
+    min = Math.min(min, distToBox({ x: p.x + t * (q.x - p.x), y: p.y + t * (q.y - p.y) }, b));
+  }
+  return min;
+}
+
+// This is the test the previous placement lacked. gamma and delta were both drawn
+// centred inside wedges 13-46 deg and 6.5-23 deg wide, where a 64px label always
+// crossed a bounding ray -- measured at 0px clearance against a rope at beta = 44.
+// Mutation proof: putting either label back at its wedge's mid-angle (at.x = from.x,
+// at.y = from.y) drops its clearance against the rope bounding that wedge to 0.
+test('neither annotation label touches a rope, the structure or the crate', () => {
+  const CLEAR = 8;
+  for (let beta = BETA_MIN; beta <= BETA_MAX + 1e-9; beta += 0.25) {
+    const theta = 45 + beta / 2;
+    const s = { beta, theta };
+    const pulley = pulleyAt(theta);
+    const C = anchorC(beta);
+    const crateTop = pulley.y + CRATE.drop;
+    const cx = pulley.x - CRATE.w / 2, cxr = pulley.x + CRATE.w / 2;
+    const crateBot = crateTop + CRATE.h;
+
+    const obstacles = [
+      ['rope BD', ANCHOR_D, pulley],
+      ['rope BA', pulley, { x: pulley.x, y: crateTop }],
+      ['rope BC', pulley, C],
+      ['the ceiling', { x: 40, y: CEIL_Y }, { x: 330, y: CEIL_Y }],
+      ['the ground', { x: 40, y: GROUND_Y }, { x: SCENE_VB.w - 30, y: GROUND_Y }],
+      ['the crate', { x: cx, y: crateTop }, { x: cxr, y: crateTop }],
+      ['the crate', { x: cx, y: crateBot }, { x: cxr, y: crateBot }],
+      ['the crate', { x: cx, y: crateTop }, { x: cx, y: crateBot }],
+      ['the crate', { x: cxr, y: crateTop }, { x: cxr, y: crateBot }]
+    ];
+
+    for (const [name, leader] of [['gamma', gammaLeader(s)], ['delta', deltaLeader(s)]]) {
+      const box = labelBox(leader.at);
+      assert.ok(box.x0 > 0 && box.x1 < SCENE_VB.w && box.y0 > 0 && box.y1 < SCENE_VB.h,
+        `${name}'s label leaves the panel at beta=${beta}`);
+      for (const [what, p, q] of obstacles) {
+        const d = segBoxDist(p, q, box);
+        assert.ok(d >= CLEAR,
+          `${name}'s label is ${d.toFixed(1)}px from ${what} at beta=${beta}`);
+      }
+    }
+
+    const g = labelBox(gammaLeader(s).at), d = labelBox(deltaLeader(s).at);
+    assert.ok(g.y0 > d.y1 + CLEAR || d.y0 > g.y1 + CLEAR || g.x0 > d.x1 + CLEAR || d.x0 > g.x1 + CLEAR,
+      `the two annotation labels overlap at beta=${beta}`);
   }
 });

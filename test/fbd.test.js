@@ -14,7 +14,7 @@ test('no arrow leaves the panel at any reachable state', () => {
   for (const W of [WEIGHT_MIN, 350, WEIGHT_MAX]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 0.5) {
       const s = snap(W, beta);
-      for (const which of ['ab', 'bc', 'bd']) {
+      for (const which of ['ba', 'bc', 'bd']) {
         const t = arrowTip(s, which);
         assert.ok(t.x > 20 && t.x < FBD_VB.w - 20, `${which} tip x=${t.x} at W=${W} beta=${beta}`);
         assert.ok(t.y > 20 && t.y < FBD_VB.h - 20, `${which} tip y=${t.y} at W=${W} beta=${beta}`);
@@ -25,7 +25,7 @@ test('no arrow leaves the panel at any reachable state', () => {
 
 test('arrow directions match the physics', () => {
   const s = snap(500, 60);
-  const ab = arrowTip(s, 'ab'), bc = arrowTip(s, 'bc'), bd = arrowTip(s, 'bd');
+  const ab = arrowTip(s, 'ba'), bc = arrowTip(s, 'bc'), bd = arrowTip(s, 'bd');
   assert.ok(Math.abs(ab.x - FBD_ORIGIN.x) < 1e-9, 'the crate pulls straight down');
   assert.ok(ab.y > FBD_ORIGIN.y, 'the crate pulls DOWN');
   assert.ok(bc.x > FBD_ORIGIN.x && bc.y > FBD_ORIGIN.y, 'T_BC pulls down and to the right');
@@ -36,7 +36,7 @@ test('the three arrows sum to zero', () => {
   for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 2.5) {
     const s = snap(500, beta);
     let sx = 0, sy = 0;
-    for (const which of ['ab', 'bc', 'bd']) {
+    for (const which of ['ba', 'bc', 'bd']) {
       const t = arrowTip(s, which);
       sx += t.x - FBD_ORIGIN.x;
       sy += t.y - FBD_ORIGIN.y;
@@ -50,7 +50,7 @@ test('a pointer on an arrow tip reads back that arrows magnitude', () => {
   for (const W of [150, 400, 600]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 5) {
       const s = snap(W, beta);
-      for (const which of ['ab', 'bc', 'bd']) {
+      for (const which of ['ba', 'bc', 'bd']) {
         const got = magnitudeFromPointer(arrowTip(s, which), which, s);
         const want = which === 'bd' ? s.TBD : W;
         assert.ok(Math.abs(got - want) < 1e-9, `${which} at W=${W} beta=${beta}: ${got} vs ${want}`);
@@ -82,7 +82,7 @@ test('dragging any arrowhead recovers the same weight', () => {
   for (const W of [120, 400, 590]) {
     for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 5) {
       const s = snap(W, beta);
-      for (const which of ['ab', 'bc', 'bd']) {
+      for (const which of ['ba', 'bc', 'bd']) {
         const mag = magnitudeFromPointer(arrowTip(s, which), which, s);
         const back = weightFromMagnitude(mag, which, beta);
         assert.ok(Math.abs(back - W) < 1e-9, `${which} at W=${W} beta=${beta}: got ${back}`);
