@@ -1,4 +1,4 @@
-import { BETA_SPECIAL, BETA_MIN, BETA_MAX } from './physics.js';
+import { tripleAt, BETA_MIN, BETA_MAX } from './physics.js';
 
 // Pure, so it can be tested without a DOM. Every number is rounded here, at the
 // moment of display, from the live unrounded state -- never hard-coded.
@@ -8,8 +8,8 @@ export function pickMessage(s, prev) {
   const changedW = prev && Math.abs(s.W - prev.W) > 1e-9;
   const changedB = prev && Math.abs(s.beta - prev.beta) > 1e-9;
   // Exact, not a tolerance: only setBeta's pointer snap (and the opening state)
-  // land here, and only there does the 5-12-13 ratio actually hold.
-  const atDetent = Math.abs(s.beta - BETA_SPECIAL) < 1e-9;
+  // land here, and only there does one of the Pythagorean triple ratios actually hold.
+  const triple = tripleAt(s.beta);
   const atMax = s.beta >= BETA_MAX - 1e-9;
   const atMin = s.beta <= BETA_MIN + 1e-9;
 
@@ -20,9 +20,12 @@ export function pickMessage(s, prev) {
   }
 
   if (changedB) {
-    if (atDetent) {
-      return `The textbook case: the rope runs 5 across for every 12 down, 13 along its ` +
-             `length. β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
+    if (triple) {
+      const textbookNote = triple.across === 5 && triple.down === 12 ?
+        ` This is the classic textbook case.` : '';
+      return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
+             `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
+             `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
              `T_BD = 1.96 W = ${tbd} N.`;
     }
     const db = Math.abs(s.beta - prev.beta);
@@ -43,12 +46,15 @@ export function pickMessage(s, prev) {
   }
 
   // No change: the first render of the session. The app always opens at
-  // beta = BETA_SPECIAL (see state.js's createState), so atDetent is always
-  // true here and this branch is the only one of this function's "first
-  // render" branches that is ever actually reached.
-  if (atDetent) {
-    return `The textbook case: the rope runs 5 across for every 12 down, 13 along its ` +
-           `length. β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
+  // a detent (see state.js's createState), so triple is always non-null here and
+  // this branch is the only one of this function's "first render" branches that is
+  // ever actually reached.
+  if (triple) {
+    const textbookNote = triple.across === 5 && triple.down === 12 ?
+      ` This is the classic textbook case.` : '';
+    return `The ${triple.across}-${triple.down}-${triple.hyp} case: the rope runs ${triple.across} ` +
+           `across for every ${triple.down} down, ${triple.hyp} along its length.${textbookNote} ` +
+           `β = ${s.beta.toFixed(1)}°, θ = ${s.theta.toFixed(1)}°, ` +
            `T_BD = 1.96 W = ${tbd} N.`;
   }
 
