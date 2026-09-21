@@ -43,3 +43,15 @@ test('dragging C to the right lowers beta and dragging it left raises beta', () 
   assert.ok(betaFromPointerX(mid + 60) < 60);
   assert.ok(betaFromPointerX(mid - 60) > 60);
 });
+
+import { BETA_SPECIAL } from '../src/physics.js';
+
+test('the keyboard contract rounds to a whole degree before stepping', () => {
+  // scene.js must round the CURRENT value before applying the step, or arrow
+  // keys leaving the detent would walk on a 67.38/68.38/69.38 grid forever.
+  const stepFrom = (v, delta) => Math.round(v) + delta;
+  assert.strictEqual(stepFrom(BETA_SPECIAL, 1), 68);
+  assert.strictEqual(stepFrom(BETA_SPECIAL, -1), 66);
+  assert.strictEqual(stepFrom(68, 1), 69);
+  assert.strictEqual(stepFrom(52.4, -1), 51);
+});

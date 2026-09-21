@@ -425,8 +425,52 @@ function createScene(svg, actions) {
     cHandle.setAttribute('aria-label', 'Ground anchor position');
   }
 
-  void actions;
-  void latest;
+  let dragging = false;
+  let dragPointerId = null;
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;                 // right/middle click must not drag
+    const g = e.target.closest('[data-scene]');
+    if (!g) return;
+    dragging = true;
+    dragPointerId = e.pointerId;
+    g.focus();
+    // A throw here would leave the drag live but uncaptured, so a pointerup
+    // outside the svg would never end it.
+    try { svg.setPointerCapture(e.pointerId); } catch {}
+    e.preventDefault();
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (!dragging || !latest || e.pointerId !== dragPointerId) return;
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    actions.setBeta(betaFromPointerX(p.x));     // pointer path: snaps at the detent
+  });
+
+  function endDrag(e) {
+    if (!dragging || e.pointerId !== dragPointerId) return;
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    dragging = false;
+    dragPointerId = null;
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  handleRoot.addEventListener('keydown', e => {
+    if (!e.target.closest('[data-scene]')) return;
+    const step = e.shiftKey ? 0.1 : 1;
+    let delta = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') delta = step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
+    else return;
+    e.preventDefault();
+    // Round BEFORE stepping so whole-degree presses stay on a uniform grid after
+    // leaving the detent, and use the exact setter so they never re-snap into it.
+    const now = latest ? latest.beta : 0;
+    const base = e.shiftKey ? now : Math.round(now);
+    actions.setBetaExact(base + delta);
+  });
+
   return { render };
 }
 
