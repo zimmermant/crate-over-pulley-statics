@@ -1,11 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import { join, dirname } from 'node:path';
 import { strip, scanForDuplicates } from '../build.js';
-
-const SRC = join(dirname(fileURLToPath(import.meta.url)), '..', 'src');
 
 // build.js only calls main() when it is the program node was invoked on (see
 // its guard at the bottom), so importing it here to reach `strip` does not
@@ -117,11 +112,25 @@ test('an ordinary indented function-local const does NOT throw -- the column-0 '
     assert.ok(!seen.has('px'));
   });
 
-test('the real fbd.js (top-level px) and triangle.js (indented, function-local px) ' +
-     'do not collide', () => {
+test('a top-level px in one module and a function-local px in another do not collide', () => {
   const seen = new Map();
-  scanForDuplicates(readFileSync(join(SRC, 'fbd.js'), 'utf8'), 'fbd.js', seen);
+  const fbdSrc = [
+    'export function px(x, y) {',
+    '  return { x, y };',
+    '}'
+  ].join('\n');
+  scanForDuplicates(fbdSrc, 'fbd.js', seen);
   assert.equal(seen.get('px'), 'fbd.js');
+
+  const triangleSrc = [
+    'export function createTriangle(svg) {',
+    '  function render(s) {',
+    '    const px = (x, y) => ({ x: x, y: y });',
+    '    return px(1, 2);',
+    '  }',
+    '  return { render };',
+    '}'
+  ].join('\n');
   assert.doesNotThrow(() =>
-    scanForDuplicates(readFileSync(join(SRC, 'triangle.js'), 'utf8'), 'triangle.js', seen));
+    scanForDuplicates(triangleSrc, 'triangle.js', seen));
 });
