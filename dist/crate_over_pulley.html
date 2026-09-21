@@ -718,12 +718,16 @@ function createTriangle(svg) {
       el('line', { x1: from.x, y1: from.y, x2: to.x, y2: to.y,
                    stroke: color, 'stroke-width': 4 }, root);
       const mx = (from.x + to.x) / 2, my = (from.y + to.y) / 2;
-      // Push the label away from the triangle's centre so it never sits on a leg.
+      // Perpendicular to THIS leg, not the direction from the centroid: for a thin
+      // triangle the centroid-to-midpoint direction runs nearly along the leg, which
+      // is what put these labels on top of the lines.
       const cxx = (a.x + b.x + c.x) / 3, cyy = (a.y + b.y + c.y) / 3;
-      const ux = mx - cxx, uy = my - cyy;
-      const n = Math.hypot(ux, uy) || 1;
-      text(root, mx + 22 * ux / n, my + 22 * uy / n + 5, label,
-           { fill: color, weight: 600, anchor: ux < 0 ? 'end' : 'start' });
+      const lx = to.x - from.x, ly = to.y - from.y;
+      const ln = Math.hypot(lx, ly) || 1;
+      let nx = -ly / ln, ny = lx / ln;
+      if (nx * (mx - cxx) + ny * (my - cyy) < 0) { nx = -nx; ny = -ny; }
+      text(root, mx + 24 * nx, my + 24 * ny + 5, label,
+           { fill: color, weight: 600, anchor: nx < 0 ? 'end' : 'start' });
     }
 
     text(root, 12, TRI_VB.h - 12,
