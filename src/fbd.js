@@ -1,4 +1,4 @@
-import { DEG, BETA_MIN, BETA_MAX, WEIGHT_MIN, WEIGHT_MAX, solve } from './physics.js';
+import { DEG, WEIGHT_MIN, WEIGHT_MAX, weightFromMagnitude } from './physics.js';
 import { el, clear, text, COLORS, clientToSvg } from './svg.js';
 
 export const FBD_VB = { w: 720, h: 620 };
@@ -97,11 +97,80 @@ export function createFbd(svg, actions) {
     text(drawRoot, FBD_ORIGIN.x + 12, FBD_ORIGIN.y - 12, 'B', { weight: 600 });
   }
 
-  void actions;
-  void latest;
-  void BETA_MIN;
-  void BETA_MAX;
-  void clientToSvg;
-  void solve;
+  let dragging = null;
+  let dragPointerId = null;
+  let grabOffset = null;      // true tip minus pointer, recorded at grab time
+
+  function setActive(key) {
+    for (const k in handles) handles[k].classList.toggle('handle--active', k === key);
+  }
+
+  svg.addEventListener('pointerover', e => {
+    const g = e.target.closest('[data-fbd]');
+    if (g && !dragging) setActive(g.getAttribute('data-fbd'));
+  });
+  svg.addEventListener('pointerout', () => { if (!dragging) setActive(null); });
+  handleRoot.addEventListener('focusin', e => {
+    const g = e.target.closest('[data-fbd]');
+    if (g) setActive(g.getAttribute('data-fbd'));
+  });
+  handleRoot.addEventListener('focusout', () => { if (!dragging) setActive(null); });
+
+  svg.addEventListener('pointerdown', e => {
+    if (e.button !== 0) return;
+    const g = e.target.closest('[data-fbd]');
+    if (!g || !latest) return;
+    // Only start the drag once capture has actually succeeded. A pointerup
+    // outside the svg only reaches endDrag if capture is held, so latching
+    // `dragging` before this call could leave a drag live but uncaptured.
+    try {
+      svg.setPointerCapture(e.pointerId);
+    } catch {
+      return;                 // capture failed: do not start a drag we cannot end
+    }
+    dragging = g.getAttribute('data-fbd');
+    dragPointerId = e.pointerId;
+    g.focus();
+    setActive(dragging);
+    // Grab the arrow where the user actually took hold of it, so it does not
+    // jump to the cursor on the first pointermove.
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    const tip = arrowTip(latest, dragging);
+    grabOffset = { x: tip.x - p.x, y: tip.y - p.y };
+    e.preventDefault();
+  });
+
+  svg.addEventListener('pointermove', e => {
+    if (!dragging || e.pointerId !== dragPointerId || !latest) return;
+    const p = clientToSvg(svg, e.clientX, e.clientY);
+    const anchored = { x: p.x + grabOffset.x, y: p.y + grabOffset.y };
+    const mag = magnitudeFromPointer(anchored, dragging, latest);
+    actions.setWeight(weightFromMagnitude(mag, dragging, latest.beta));
+  });
+
+  function endDrag(e) {
+    if (!dragging || e.pointerId !== dragPointerId) return;
+    if (svg.hasPointerCapture(e.pointerId)) svg.releasePointerCapture(e.pointerId);
+    dragging = null;
+    dragPointerId = null;
+    grabOffset = null;
+    const focused = document.activeElement && document.activeElement.closest
+      ? document.activeElement.closest('[data-fbd]') : null;
+    setActive(focused ? focused.getAttribute('data-fbd') : null);
+  }
+  svg.addEventListener('pointerup', endDrag);
+  svg.addEventListener('pointercancel', endDrag);
+
+  handleRoot.addEventListener('keydown', e => {
+    if (!e.target.closest('[data-fbd]') || !latest) return;
+    const step = e.shiftKey ? 1 : 10;
+    let delta = 0;
+    if (e.key === 'ArrowUp' || e.key === 'ArrowRight') delta = step;
+    else if (e.key === 'ArrowDown' || e.key === 'ArrowLeft') delta = -step;
+    else return;
+    e.preventDefault();
+    actions.setWeight(latest.W + delta);
+  });
+
   return { render };
 }

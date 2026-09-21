@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { solve, BETA_MIN, BETA_MAX, WEIGHT_MIN, WEIGHT_MAX, DEG } from '../src/physics.js';
+import { solve, BETA_MIN, BETA_MAX, WEIGHT_MIN, WEIGHT_MAX, DEG, weightFromMagnitude } from '../src/physics.js';
 import { FBD_VB, FBD_ORIGIN, FBD_SCALE, arrowTip, magnitudeFromPointer } from '../src/fbd.js';
 
 function snap(W, beta) {
@@ -73,4 +73,31 @@ test('the longest reachable arrow still fits the fixed scale', () => {
   const s = snap(WEIGHT_MAX, BETA_MAX);
   assert.ok(s.TBD * FBD_SCALE < 250, `longest arrow is ${s.TBD * FBD_SCALE}px`);
   assert.ok(s.TBD * FBD_SCALE > 200, 'the scale should use most of the panel, not a sliver');
+});
+
+test('dragging any arrowhead recovers the same weight', () => {
+  // All three arrows are locked to W by the pulley, so grabbing any one of them
+  // must land on the same W. This is the pulley constraint expressed as an
+  // interaction: you cannot lengthen one loaded segment without the other.
+  for (const W of [120, 400, 590]) {
+    for (let beta = BETA_MIN; beta <= BETA_MAX; beta += 5) {
+      const s = snap(W, beta);
+      for (const which of ['ab', 'bc', 'bd']) {
+        const mag = magnitudeFromPointer(arrowTip(s, which), which, s);
+        const back = weightFromMagnitude(mag, which, beta);
+        assert.ok(Math.abs(back - W) < 1e-9, `${which} at W=${W} beta=${beta}: got ${back}`);
+      }
+    }
+  }
+});
+
+test('dragging an arrowhead past the panel clamps the weight instead of overflowing', () => {
+  const s = snap(500, 60);
+  const far = { x: FBD_ORIGIN.x - 4000 * Math.cos(s.theta * DEG),
+                y: FBD_ORIGIN.y - 4000 * Math.sin(s.theta * DEG) };
+  const mag = magnitudeFromPointer(far, 'bd', s);
+  assert.strictEqual(weightFromMagnitude(mag, 'bd', 60), WEIGHT_MAX);
+  const behind = { x: FBD_ORIGIN.x + 500 * Math.cos(s.theta * DEG),
+                   y: FBD_ORIGIN.y + 500 * Math.sin(s.theta * DEG) };
+  assert.strictEqual(weightFromMagnitude(magnitudeFromPointer(behind, 'bd', s), 'bd', 60), WEIGHT_MIN);
 });
